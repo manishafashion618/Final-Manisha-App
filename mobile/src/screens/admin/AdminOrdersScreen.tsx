@@ -28,6 +28,7 @@ import { adminApi } from '../../api/endpoints';
 import { ApiError } from '../../api/client';
 import { colors, orderStatusStyle, radius, shadow, spacing, typography } from '../../theme';
 import { formatPaise } from '../../utils/money';
+import { codCollectionLine } from '../../utils/orderMoney';
 import type { AdminTabParamList, RootStackParamList } from '../../navigation/types';
 import type { Order, OrderStatus, Pagination } from '../../api/types';
 
@@ -36,6 +37,8 @@ type Route = RouteProp<AdminTabParamList, 'AdminOrders'>;
 
 const FILTERS: Array<{ value: OrderStatus | 'all'; label: string }> = [
   { value: 'all', label: 'All' },
+  // Unpaid online / COD-shipping orders: not real orders to ship yet.
+  { value: 'pending_payment', label: 'Awaiting payment' },
   { value: 'placed', label: 'Placed' },
   { value: 'processing', label: 'Processing' },
   { value: 'shipped', label: 'Shipped' },
@@ -206,6 +209,12 @@ export function AdminOrdersScreen() {
                     })}
                   </Text>
                   <Text style={styles.total}>{formatPaise(item.totalAmount)}</Text>
+                  {/* What the delivery person collects, for COD. */}
+                  {codCollectionLine(item) && item.orderStatus !== 'cancelled' ? (
+                    <Text style={styles.codLine} numberOfLines={2}>
+                      {codCollectionLine(item)}
+                    </Text>
+                  ) : null}
                 </View>
               }
               />
@@ -243,11 +252,14 @@ const styles = StyleSheet.create({
   },
   footerRow: {
     flexDirection: 'row',
+    // The COD collection line (full width) drops beneath the meta and total.
+    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.md,
     marginTop: spacing.md - 2,
   },
   meta: { ...typography.caption, color: colors.textMuted, flex: 1 },
+  codLine: { ...typography.captionStrong, color: colors.text, width: '100%', marginTop: spacing.xs },
   total: { ...typography.heading, color: colors.text },
 });

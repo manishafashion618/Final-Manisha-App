@@ -1,6 +1,7 @@
 export type AccountType = 'retail' | 'wholesale' | 'staff' | 'admin';
 export type WholesaleStatus = 'none' | 'pending' | 'approved' | 'rejected';
-export type OrderStatus = 'placed' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
+/** `pending_payment`: created, but its online payment is not captured yet — not a real order. */
+export type OrderStatus = 'pending_payment' | 'placed' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
 export type PaymentMethod = 'razorpay' | 'cod';
 /** `expired`: an online payment never completed in time; the order was cancelled. */
 export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded' | 'expired';
@@ -157,6 +158,12 @@ export interface Order {
   subtotal: number;
   shippingCharge: number;
   totalAmount: number;
+  /** Paid online via Razorpay — the shipping charge, for Cash on Delivery. Absent on older servers. */
+  amountPaidOnline?: number;
+  /** Collected in cash by the courier — the items total, for Cash on Delivery. */
+  amountDueOnDelivery?: number;
+  /** Created but its online payment is not captured: not a real order yet. */
+  awaitingPayment?: boolean;
   currency: string;
   orderStatus: OrderStatus;
   statusHistory: Array<{ status: OrderStatus; at: string; note?: string }>;

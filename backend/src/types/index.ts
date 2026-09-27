@@ -11,7 +11,15 @@ export type AccountType = (typeof ACCOUNT_TYPES)[number];
 export const WHOLESALE_STATUSES = ['none', 'pending', 'approved', 'rejected'] as const;
 export type WholesaleStatus = (typeof WHOLESALE_STATUSES)[number];
 
+/**
+ * `pending_payment`: created, stock reserved, but the money due ONLINE has not
+ * been captured yet — the full amount for an online order, the shipping
+ * charge for Cash on Delivery. Not a real order until then: it becomes
+ * `placed` only when the payment is captured (app confirm or webhook), and is
+ * expired by the pending-payment sweep if it never is.
+ */
 export const ORDER_STATUSES = [
+  'pending_payment',
   'placed',
   'processing',
   'shipped',
@@ -32,6 +40,9 @@ export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 
 /** Valid forward transitions for the order lifecycle (PRD 4.5). */
 export const ORDER_STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
+  // Only a captured payment moves an order to `placed` (never an admin); an
+  // unpaid order may be cancelled.
+  pending_payment: ['cancelled'],
   placed: ['processing', 'cancelled'],
   processing: ['shipped', 'cancelled'],
   shipped: ['delivered'],

@@ -9,6 +9,16 @@ import {
   seedCart,
 } from './helpers/testServer';
 import { CodStateConfig } from '../models/codStateConfig.model';
+
+// These tests cover per-state COD PRICING, which is the same whether the
+// charge is collected in cash or online. They run in all-cash mode so no
+// payment gateway is involved; paying the charge online before the order is
+// confirmed (COD_SHIPPING_PAID_ONLINE, the production default) is covered in
+// cod-online-shipping.test.ts.
+jest.mock('../config/env', () => {
+  const actual = jest.requireActual('../config/env');
+  return { ...actual, env: { ...actual.env, COD_SHIPPING_PAID_ONLINE: false } };
+});
 import { Order } from '../models/order.model';
 import { Product } from '../models/product.model';
 import { User } from '../models/user.model';

@@ -63,6 +63,9 @@ async function main(): Promise<void> {
   ]) {
     process.env[name] = '';
   }
+  // Razorpay is blanked above, so COD runs all-cash here (the online-shipping
+  // rule is covered by the jest suite cod-online-shipping.test.ts).
+  process.env.COD_SHIPPING_PAID_ONLINE = 'false';
   process.env.PORT = '4599';
   process.env.API_PREFIX = '/api/v1';
   process.env.JWT_ACCESS_SECRET = 'smoke-test-access-secret-value-0123456789';

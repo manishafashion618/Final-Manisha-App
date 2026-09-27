@@ -202,6 +202,33 @@ export function CheckoutScreen() {
     : (cart?.subtotal ?? 0);
   const total = shippingCharge === null ? null : subtotal + shippingCharge;
 
+  /*
+     COD collects the shipping charge online before the order is placed; only
+     the items are paid in cash at the door. A ₹0 charge has nothing to collect
+     online and stays a plain COD order. The server decides all of this again —
+     this only tells the customer what is about to happen.
+  */
+  const codShippingOnline =
+    paymentMethod === 'cod' &&
+    config?.codShippingPaidOnline === true &&
+    codCharge !== null &&
+    codCharge > 0;
+
+  /* COD that needs an online payment cannot be placed at all while Razorpay is
+     off, so the option says so instead of failing at the server. */
+  const codBlockedByRazorpay =
+    config?.codShippingPaidOnline === true &&
+    config.razorpayEnabled === false &&
+    (codCharge ?? 0) > 0;
+
+  const payableOnline = codShippingOnline ? (codCharge ?? 0) : total;
+  const payableOnDelivery = codShippingOnline ? subtotal : 0;
+
+  /* A payment that was closed or declined leaves the order unpaid and NOT
+     placed, with its Razorpay order still open. Retrying reuses that one
+     rather than placing a second order. */
+  const pendingPayment = params?.paymentOutcome ?? null;
+
   const handlePlaceOrder = async () => {
     if (!selectedAddressId) return;
 
@@ -212,11 +239,30 @@ export function CheckoutScreen() {
 
     const { order, payment } = result.payload;
 
-    if (order.paymentMethod === 'razorpay' && payment) {
-      navigation.replace('RazorpayCheckout', { orderId: order.id, handle: payment });
+    /* Anything with money to collect online — a full online order, or COD's
+       shipping charge — goes to Razorpay first. Pushed rather than replaced, so
+       closing the sheet comes back to this screen with the order retryable. */
+    if (payment) {
+      navigation.navigate('RazorpayCheckout', {
+        orderId: order.id,
+        handle: payment,
+        returnTo: 'checkout',
+        description:
+          order.paymentMethod === 'cod' ? 'Shipping charge (cash on delivery)' : 'Jewellery order',
+      });
       return;
     }
     navigation.replace('OrderConfirmation', { orderId: order.id });
+  };
+
+  const handleRetryPayment = () => {
+    if (!pendingPayment) return;
+    navigation.navigate('RazorpayCheckout', {
+      orderId: pendingPayment.orderId,
+      handle: pendingPayment.handle,
+      returnTo: 'checkout',
+      description: 'Complete your payment',
+    });
   };
 
   // Waiting on whichever source this checkout is built from. The skeleton
@@ -343,17 +389,24 @@ export function CheckoutScreen() {
             {codAvailable ? (
               <PaymentOption
                 selected={paymentMethod === 'cod'}
+                disabled={codBlockedByRazorpay}
                 onPress={() => setPaymentMethod('cod')}
                 title="Cash on delivery"
-                subtitle="Pay the courier on arrival"
+                subtitle={
+                  config?.codShippingPaidOnline === true && (codCharge ?? 0) > 0
+                    ? 'Shipping paid online, items in cash'
+                    : 'Pay the courier on arrival'
+                }
                 note={
                   !config
                     ? undefined
-                    : codCharge !== null
-                      ? `+${formatPaise(codCharge)}`
-                      : codLookupFailed
-                        ? undefined
-                        : '…'
+                    : codBlockedByRazorpay
+                      ? 'Unavailable'
+                      : codCharge !== null
+                        ? `+${formatPaise(codCharge)}`
+                        : codLookupFailed
+                          ? undefined
+                          : '…'
                 }
               />
             ) : null}
@@ -362,6 +415,20 @@ export function CheckoutScreen() {
           {!codAvailable && codOptions ? (
             <Text style={styles.paymentNote}>
               Cash on delivery isn't available for deliveries to {codOptions.state}.
+            </Text>
+          ) : null}
+
+          {/* Why COD is greyed out: the shipping charge has to be paid online
+              and online payment is switched off. */}
+          {codBlockedByRazorpay ? (
+            <Text style={styles.paymentNote}>
+              Cash on delivery needs the shipping charge paid online, and online payment is
+              unavailable right now.
+            </Text>
+          ) : codShippingOnline ? (
+            <Text style={styles.paymentNote}>
+              You'll pay the {formatPaise(codCharge ?? 0)} shipping charge online now to confirm the
+              order. The {formatPaise(subtotal)} for the items is paid in cash when it arrives.
             </Text>
           ) : null}
 
@@ -422,6 +489,22 @@ export function CheckoutScreen() {
               valueTone={shippingCharge === 0 ? 'success' : 'default'}
               divided
             />
+            {/* The split, spelled out where the money is: what leaves the
+                account now, and what the courier collects. */}
+            {codShippingOnline ? (
+              <>
+                <SummaryLine
+                  label="Pay online now"
+                  value={formatPaise(payableOnline ?? 0)}
+                  divided
+                />
+                <SummaryLine
+                  label="Pay cash on delivery"
+                  value={formatPaise(payableOnDelivery)}
+                  divided
+                />
+              </>
+            ) : null}
           </View>
         </View>
       </ScrollView>
@@ -431,19 +514,43 @@ export function CheckoutScreen() {
           <Text style={styles.totalLabel}>Total</Text>
           <Text style={styles.totalValue}>{total === null ? '—' : formatPaise(total)}</Text>
         </View>
-        <Button
-          label={paymentMethod === 'cod' ? 'Place order' : 'Pay now'}
-          onPress={handlePlaceOrder}
-          loading={placingOrder}
-          /* COD withdrawn while it was the only method — Razorpay is off too —
-             leaves nothing to place the order with. The server would refuse it
-             anyway; blocking here says so before the customer taps. */
-          disabled={
-            !selectedAddressId ||
-            !hasSomethingToOrder ||
-            (paymentMethod === 'cod' && (!codAvailable || codCharge === null))
-          }
-        />
+
+        {/* Came back from a payment that did not complete. The order is waiting
+            unpaid, so the button retries that payment instead of placing
+            another order; "Start over" abandons it (it expires on its own). */}
+        {pendingPayment ? (
+          <>
+            <Text style={styles.retryNote}>
+              {pendingPayment.message} Your order isn't placed until the payment goes through.
+            </Text>
+            <Button label="Try payment again" onPress={handleRetryPayment} />
+            <Button
+              label="Start over"
+              variant="ghost"
+              onPress={() => navigation.setParams({ paymentOutcome: undefined })}
+            />
+          </>
+        ) : (
+          <Button
+            label={
+              codShippingOnline
+                ? `Pay ${formatPaise(payableOnline ?? 0)} & place order`
+                : paymentMethod === 'cod'
+                  ? 'Place order'
+                  : 'Pay now'
+            }
+            onPress={handlePlaceOrder}
+            loading={placingOrder}
+            /* COD withdrawn while it was the only method — Razorpay is off too —
+               leaves nothing to place the order with. The server would refuse it
+               anyway; blocking here says so before the customer taps. */
+            disabled={
+              !selectedAddressId ||
+              !hasSomethingToOrder ||
+              (paymentMethod === 'cod' && (!codAvailable || codCharge === null || codBlockedByRazorpay))
+            }
+          />
+        )}
       </View>
     </Screen>
   );
@@ -573,6 +680,13 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md + 2,
   },
   totalLabel: { ...typography.callout, color: colors.textMuted },
+  retryNote: {
+    ...typography.footnote,
+    color: colors.textMuted,
+    lineHeight: 19,
+    textAlign: 'center',
+    marginBottom: spacing.md,
+  },
   skeletonFooter: { paddingHorizontal: 24, marginTop: 32, gap: 16 },
   skeletonButton: { borderRadius: 999 },
   totalValue: { ...typography.title2, color: colors.text },

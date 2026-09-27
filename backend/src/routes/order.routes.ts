@@ -69,6 +69,15 @@ router.get(
 
 // PRD 4.5 — cancellation is permitted only while the order is still "placed";
 // the service enforces that, this route only enforces ownership.
+// Re-open payment for an order still awaiting it (closed sheet, failed attempt).
+router.get(
+  '/:id/payment',
+  validate({ params: objectIdParam() }),
+  authenticate,
+  requirePermission(PERMISSIONS.ORDER_CREATE),
+  orderController.paymentHandle,
+);
+
 router.post(
   '/:id/cancel',
   validate({ params: objectIdParam(), body: cancelOrderSchema }),

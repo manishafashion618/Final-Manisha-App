@@ -13,6 +13,7 @@ import type {
   ProductFilters,
   ProductVisibility,
   RatingSummary,
+  RazorpayHandle,
   Review,
   User,
   WholesaleStatus,
@@ -48,6 +49,11 @@ export interface StoreConfig {
    */
   codPerStateSupported?: boolean;
   prepaidShippingCharge: number;
+  /**
+   * COD customers pay the shipping/COD charge online (Razorpay) before the
+   * order is confirmed, and only the items in cash. Absent on older servers.
+   */
+  codShippingPaidOnline?: boolean;
   razorpayEnabled: boolean;
   razorpayKeyId: string | null;
   /**
@@ -263,6 +269,9 @@ export const orderApi = {
    * re-derives the same numbers when the order is placed, so a stale or
    * tampered answer here cannot change what is billed.
    */
+  /** Re-opens payment for one of your orders still awaiting it (closed sheet, failed attempt). */
+  paymentHandle: (orderId: string) => get<RazorpayHandle>(`/orders/${orderId}/payment`),
+
   codOptions: (addressId: string) =>
     get<CodOptions>('/orders/cod-options', { params: { addressId } }),
 

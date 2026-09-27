@@ -43,6 +43,21 @@ export async function createRazorpayOrder(
   };
 }
 
+/** Whether an order that owes money online can be taken right now. */
+export function onlinePaymentAvailable(): boolean {
+  return Boolean(getRazorpay() && razorpayConfigured);
+}
+
+/** The handle the app opens Razorpay with, for an existing Razorpay order. */
+export function handleFor(razorpayOrderId: string, amountInPaise: number): RazorpayOrderHandle {
+  return {
+    razorpayOrderId,
+    amount: amountInPaise,
+    currency: env.CURRENCY,
+    keyId: env.RAZORPAY_KEY_ID as string,
+  };
+}
+
 /**
  * Verifies the checkout handshake signature.
  * The client cannot forge this: it is an HMAC over order_id|payment_id keyed
@@ -164,6 +179,12 @@ export async function checkRazorpayConfig(): Promise<void> {
   const hasWebhookSecret = Boolean(env.RAZORPAY_WEBHOOK_SECRET);
 
   if (!keyId && !hasSecret) {
+    if (env.COD_SHIPPING_PAID_ONLINE) {
+      logger.error(
+        '[razorpay] Not configured, but COD_SHIPPING_PAID_ONLINE is on: Cash on Delivery orders with a shipping ' +
+          'charge CANNOT be placed (their charge is paid online). Configure Razorpay, or set COD_SHIPPING_PAID_ONLINE=false.',
+      );
+    }
     logger.warn('[razorpay] Not configured: online payment is OFF, customers can only choose Cash on Delivery.');
     if (hasWebhookSecret) logger.warn('[razorpay] RAZORPAY_WEBHOOK_SECRET is set but the API keys are not.');
     return;

@@ -9,6 +9,7 @@ import { Icon } from '../../components/Icon';
 import { orderApi } from '../../api/endpoints';
 import { colors, radius, shadowAccent, spacing, typography } from '../../theme';
 import { formatPaise } from '../../utils/money';
+import { moneySplit } from '../../utils/orderMoney';
 import type { RootStackParamList } from '../../navigation/types';
 import type { Order } from '../../api/types';
 
@@ -77,6 +78,9 @@ export function OrderConfirmationScreen() {
 
   const pieces = order.items.reduce((sum, item) => sum + item.quantity, 0);
   const thumbs = order.items.filter((item) => item.image).slice(0, 3);
+  const { paidOnline, dueOnDelivery } = moneySplit(order);
+  // COD paid its shipping charge online, so there are two amounts to state.
+  const splitPayment = order.paymentMethod === 'cod' && paidOnline > 0;
 
   return (
     <Screen edges={['top', 'bottom']}>
@@ -97,12 +101,21 @@ export function OrderConfirmationScreen() {
             per-row `divided` flag is gone with it. */}
         <Group style={styles.card}>
           <Row label="Order" value={order.orderNumber} />
-          <Row
-            label={order.paymentStatus === 'paid' ? 'Paid' : 'Payable'}
-            value={`${formatPaise(order.totalAmount)} · ${
-              order.paymentMethod === 'cod' ? 'On delivery' : 'Online'
-            }`}
-          />
+          {/* One combined line would be wrong about both halves of a split
+              payment, so each is stated on its own. */}
+          {splitPayment ? (
+            <>
+              <Row label="Paid online · shipping" value={formatPaise(paidOnline)} />
+              <Row label="Pay on delivery" value={formatPaise(dueOnDelivery)} />
+            </>
+          ) : (
+            <Row
+              label={order.paymentStatus === 'paid' ? 'Paid' : 'Payable'}
+              value={`${formatPaise(order.totalAmount)} · ${
+                order.paymentMethod === 'cod' ? 'On delivery' : 'Online'
+              }`}
+            />
+          )}
           <Row
             label="Delivery to"
             value={`${order.shippingAddress.city}, ${order.shippingAddress.pincode}`}

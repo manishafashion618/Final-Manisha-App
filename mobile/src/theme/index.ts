@@ -178,6 +178,7 @@ export const shadowAccent = Platform.select({
  * kept for the admin screens that still show status as a pill.
  */
 export const orderStatusStyle: Record<string, { bg: string; fg: string; label: string }> = {
+  pending_payment: { bg: colors.warningSoft, fg: colors.warning, label: 'Awaiting payment' },
   placed: { bg: colors.primarySoft, fg: colors.primary, label: 'Placed' },
   processing: { bg: colors.warningSoft, fg: colors.warning, label: 'Processing' },
   shipped: { bg: colors.warningSoft, fg: colors.warning, label: 'Shipped' },

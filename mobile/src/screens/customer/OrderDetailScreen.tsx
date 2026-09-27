@@ -3,7 +3,9 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { BlockSkeleton, PressableScale } from '../../components/motion';
 import { Image } from 'expo-image';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
+  Button,
   EmptyState,
   Group,
   NavBar,
@@ -16,9 +18,11 @@ import { useAppDispatch } from '../../store/hooks';
 import { cancelOrder } from '../../store/slices/cartSlice';
 import { colors, orderStatusStyle, radius, shadow, spacing, typography } from '../../theme';
 import { formatPaise } from '../../utils/money';
+import { moneySplit } from '../../utils/orderMoney';
 import type { RootStackParamList } from '../../navigation/types';
 import type { Order, OrderStatus } from '../../api/types';
 
+type Nav = NativeStackNavigationProp<RootStackParamList, 'OrderDetail'>;
 type Route = RouteProp<RootStackParamList, 'OrderDetail'>;
 
 const TIMELINE: OrderStatus[] = ['placed', 'processing', 'shipped', 'delivered'];
@@ -37,12 +41,13 @@ const TIMELINE_HINT: Record<string, string> = {
  */
 export function OrderDetailScreen() {
   const { params } = useRoute<Route>();
-  const navigation = useNavigation();
+  const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
 
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
+  const [paying, setPaying] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -57,6 +62,41 @@ export function OrderDetailScreen() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  /* Coming back from a payment sheet that was closed: the order may now be
+     paid (the webhook can settle it even when the app saw nothing), so it is
+     read again. Only for an order that was still waiting — a settled order has
+     nothing to re-check on every focus. */
+  const awaitingPayment = order?.orderStatus === 'pending_payment';
+  useEffect(() => {
+    if (!awaitingPayment) return;
+    return navigation.addListener('focus', () => {
+      void load();
+    });
+  }, [awaitingPayment, navigation, load]);
+
+  /* Re-opens the payment the order is already waiting on — the same Razorpay
+     order, so retrying never creates a second one. */
+  const handleCompletePayment = async () => {
+    setPaying(true);
+    try {
+      const handle = await orderApi.paymentHandle(params.orderId);
+      navigation.navigate('RazorpayCheckout', {
+        orderId: params.orderId,
+        handle,
+        returnTo: 'order',
+        description:
+          order?.paymentMethod === 'cod' ? 'Shipping charge (cash on delivery)' : 'Jewellery order',
+      });
+    } catch {
+      Alert.alert(
+        'Could not open payment',
+        'We could not start the payment just now. Please try again.',
+      );
+    } finally {
+      setPaying(false);
+    }
+  };
 
   const requestCancellation = () => {
     Alert.alert(
@@ -139,6 +179,12 @@ export function OrderDetailScreen() {
   const status = orderStatusStyle[order.orderStatus];
   const cancelled = order.orderStatus === 'cancelled';
   const currentStep = TIMELINE.indexOf(order.orderStatus);
+  const { paidOnline, dueOnDelivery } = moneySplit(order);
+  // A COD order that paid its shipping charge online, so the footer can show
+  // both halves rather than one total that is true of neither.
+  // (Not while it is unpaid — the card above already explains that case.)
+  const splitPayment =
+    order.paymentMethod === 'cod' && paidOnline > 0 && order.orderStatus !== 'pending_payment';
 
   return (
     <Screen edges={['top']}>
@@ -155,6 +201,26 @@ export function OrderDetailScreen() {
             <Text style={styles.cancelledNote}>
               {order.statusHistory.find((event) => event.status === 'cancelled')?.note ??
                 'Your items were returned to stock.'}
+            </Text>
+          </View>
+        ) : order.orderStatus === 'pending_payment' ? (
+          /* Not an order yet. The timeline would be misleading here — nothing
+             has happened and nothing will until the payment is made. */
+          <View style={[styles.card, shadow]}>
+            <Text style={styles.cancelledTitle}>Payment not completed</Text>
+            <Text style={styles.cancelledNote}>
+              {order.paymentMethod === 'cod'
+                ? `This order isn't placed yet. Pay the ${formatPaise(paidOnline)} shipping charge online to confirm it — the ${formatPaise(dueOnDelivery)} for the items is then paid in cash on delivery.`
+                : `This order isn't placed yet. Complete the ${formatPaise(paidOnline)} payment to confirm it.`}
+            </Text>
+            <Button
+              label={paying ? 'Opening…' : 'Complete payment'}
+              onPress={handleCompletePayment}
+              disabled={paying}
+              style={{ marginTop: spacing.lg }}
+            />
+            <Text style={styles.pendingHint}>
+              Your items are held until then. Unpaid orders are released automatically.
             </Text>
           </View>
         ) : (
@@ -248,17 +314,41 @@ export function OrderDetailScreen() {
       <View style={styles.footer}>
         <View style={styles.totalRow}>
           <Text style={styles.totalLabel}>
-            {order.paymentStatus === 'refunded'
-              ? 'Refunded'
-              : order.paymentStatus === 'paid'
-                ? 'Paid'
-                : order.paymentStatus === 'expired'
-                  ? 'Not paid'
-                  : 'Payable'}{' '}
-            · {order.paymentMethod === 'cod' ? 'On delivery' : 'Online'}
+            {splitPayment
+              ? 'Order total'
+              : `${
+                  order.paymentStatus === 'refunded'
+                    ? 'Refunded'
+                    : order.paymentStatus === 'paid'
+                      ? 'Paid'
+                      : order.paymentStatus === 'expired'
+                        ? 'Not paid'
+                        : 'Payable'
+                } · ${order.paymentMethod === 'cod' ? 'On delivery' : 'Online'}`}
           </Text>
           <Text style={styles.totalValue}>{formatPaise(order.totalAmount)}</Text>
         </View>
+
+        {/* Where the money actually went: the shipping charge was paid online
+            when the order was placed, the rest is cash at the door. */}
+        {splitPayment ? (
+          <View style={styles.splitRows}>
+            <View style={styles.splitRow}>
+              <Text style={styles.splitLabel}>
+                {order.paymentStatus === 'refunded'
+                  ? 'Refunded · shipping'
+                  : 'Paid online · shipping'}
+              </Text>
+              <Text style={styles.splitValue}>{formatPaise(paidOnline)}</Text>
+            </View>
+            <View style={styles.splitRow}>
+              <Text style={styles.splitLabel}>
+                {order.orderStatus === 'delivered' ? 'Paid in cash' : 'Pay on delivery'}
+              </Text>
+              <Text style={styles.splitValue}>{formatPaise(dueOnDelivery)}</Text>
+            </View>
+          </View>
+        ) : null}
 
         {/* Refund progress, in the customer's words — "due" and "failed" are
             both simply "being arranged" from their side. */}
@@ -307,6 +397,13 @@ const styles = StyleSheet.create({
   card: { padding: spacing.xl, borderRadius: radius.xl, backgroundColor: colors.surface },
   cancelledTitle: { ...typography.bodyStrong, fontWeight: '600', color: colors.text },
   cancelledNote: { ...typography.callout, color: colors.textMuted, lineHeight: 23, marginTop: 6 },
+  pendingHint: {
+    ...typography.footnote,
+    color: colors.textFaint,
+    lineHeight: 18,
+    textAlign: 'center',
+    marginTop: spacing.md,
+  },
 
   step: { flexDirection: 'row', gap: spacing.lg },
   stepRail: { alignItems: 'center', paddingTop: 4 },
@@ -343,6 +440,10 @@ const styles = StyleSheet.create({
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
   totalLabel: { ...typography.callout, color: colors.textMuted },
   totalValue: { ...typography.title, fontSize: 24, color: colors.text },
+  splitRows: { marginTop: spacing.sm, gap: 4 },
+  splitRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
+  splitLabel: { ...typography.footnote, color: colors.textMuted },
+  splitValue: { ...typography.footnoteStrong, color: colors.text },
   cancel: { height: 52, alignItems: 'center', justifyContent: 'center', marginTop: spacing.md },
   cancelLabel: { ...typography.bodyStrong, color: colors.primary },
 });

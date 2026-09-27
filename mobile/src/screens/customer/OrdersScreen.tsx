@@ -95,7 +95,10 @@ export function OrdersScreen() {
                   })}{' '}
                   · {pieces} piece{pieces === 1 ? '' : 's'} ·{' '}
                   {order.paymentMethod === 'cod' ? 'COD' : 'Online'}
-                  {order.paymentMethod === 'razorpay' && order.paymentStatus === 'pending'
+                  {/* A COD order can be waiting on a payment too — its shipping
+                      charge is paid online before the order is placed. */}
+                  {order.orderStatus === 'pending_payment' ||
+                  (order.paymentMethod === 'razorpay' && order.paymentStatus === 'pending')
                     ? ' · payment pending'
                     : order.paymentStatus === 'expired'
                       ? ' · payment not completed'

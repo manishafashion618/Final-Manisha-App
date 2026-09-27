@@ -71,9 +71,18 @@ export interface IOrder extends Document<Types.ObjectId> {
     requestedAt: Date;
     reason?: string;
   };
+  /** The items total (priceAtOrder × quantity, summed). */
   subtotal: number;
   shippingCharge: number;
   totalAmount: number;
+  /**
+   * What is collected ONLINE via Razorpay: the full total for an online order,
+   * the shipping charge for Cash on Delivery (0 when COD shipping is free).
+   * Absent on orders placed before this split existed — see amountsOf().
+   */
+  amountPaidOnline?: number;
+  /** What the courier collects in cash: the items total for COD, 0 online. */
+  amountDueOnDelivery?: number;
   currency: string;
   orderStatus: OrderStatus;
   statusHistory: IOrderStatusEvent[];
@@ -163,6 +172,10 @@ const orderSchema = new Schema<IOrder>(
     subtotal: { type: Number, required: true, min: 0 },
     shippingCharge: { type: Number, required: true, min: 0, default: 0 },
     totalAmount: { type: Number, required: true, min: 0 },
+    // No defaults on purpose: Mongoose would fill them on older orders read
+    // back from the database, making a legacy online order look unpaid.
+    amountPaidOnline: { type: Number, min: 0 },
+    amountDueOnDelivery: { type: Number, min: 0 },
     currency: { type: String, default: 'INR' },
     orderStatus: { type: String, enum: ORDER_STATUSES, default: 'placed', required: true },
     statusHistory: { type: [statusEventSchema], default: [] },

@@ -18,6 +18,10 @@ async function main(): Promise<void> {
     process.env.JWT_ACCESS_SECRET ?? 'dev-only-access-secret-0123456789abcdef';
   process.env.JWT_REFRESH_SECRET =
     process.env.JWT_REFRESH_SECRET ?? 'dev-only-refresh-secret-0123456789abcdef';
+  // COD shipping is paid online only when Razorpay (test) keys are present;
+  // without them COD would be impossible to place locally.
+  process.env.COD_SHIPPING_PAID_ONLINE =
+    process.env.COD_SHIPPING_PAID_ONLINE ?? (process.env.RAZORPAY_KEY_ID ? 'true' : 'false');
   // Throwaway in-memory data: a known password is fine here, and nowhere else.
   process.env.SEED_ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD || 'DevMemory123';
   // The seeded admin keeps admin at sign-in only if listed (and verified, below).

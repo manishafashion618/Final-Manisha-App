@@ -10,6 +10,11 @@ export const checkout = asyncHandler(async (req: Request, res: Response) => {
   res.success(await orderService.checkout(req.user!, req.body), undefined, 201);
 });
 
+/** The Razorpay handle for "Try again" on one of the caller's unpaid orders. */
+export const paymentHandle = asyncHandler(async (req: Request, res: Response) => {
+  res.success(await orderService.getPaymentHandle(req.user!, req.params.id));
+});
+
 export const confirmPayment = asyncHandler(async (req: Request, res: Response) => {
   res.success(await orderService.confirmPayment(req.user!, req.body));
 });

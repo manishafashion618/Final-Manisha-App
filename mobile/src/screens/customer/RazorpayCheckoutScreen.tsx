@@ -36,7 +36,7 @@ export function RazorpayCheckoutScreen() {
       currency: params.handle.currency,
       order_id: params.handle.razorpayOrderId,
       name: 'Manisha Fashions',
-      description: 'Jewellery order',
+      description: params.description ?? 'Jewellery order',
       prefill: {
         contact: user?.phone ?? '',
         name: user?.name ?? '',
@@ -88,15 +88,28 @@ export function RazorpayCheckoutScreen() {
       return;
     }
 
-    if (payload.type === 'dismissed') {
-      // The order stays "placed" with payment pending; the webhook resolves it
-      // if the customer completed payment outside the app.
-      navigation.goBack();
-      return;
-    }
-
-    if (payload.type === 'failed') {
-      setFailure(payload.message ?? 'Your payment did not go through.');
+    // Not paid (sheet closed, or the attempt failed): the order is NOT placed
+    // — it waits unpaid, and the same payment can be retried. Back to where the
+    // customer came from, which offers "Try again"; the webhook still settles
+    // it if the payment went through outside the app.
+    if (payload.type === 'dismissed' || payload.type === 'failed') {
+      const message =
+        payload.type === 'failed'
+          ? payload.message ?? 'Your payment did not go through.'
+          : 'Payment not completed.';
+      if (params.returnTo === 'checkout') {
+        navigation.popTo(
+          'Checkout',
+          { paymentOutcome: { orderId: params.orderId, handle: params.handle, message } },
+          { merge: true },
+        );
+        return;
+      }
+      if (params.returnTo === 'order' || payload.type === 'dismissed') {
+        navigation.goBack();
+        return;
+      }
+      setFailure(message);
       return;
     }
 
@@ -112,7 +125,17 @@ export function RazorpayCheckoutScreen() {
       setVerifying(false);
 
       if (confirmPayment.fulfilled.match(result)) {
-        navigation.replace('OrderConfirmation', { orderId: params.orderId });
+        /* Reset rather than replace: the sheet is pushed over the checkout
+           screen (so a closed sheet can return to it), and going back onto a
+           checkout whose cart has just been emptied is a dead end. Back from
+           the confirmation now goes to the shop. */
+        navigation.reset({
+          index: 1,
+          routes: [
+            { name: 'CustomerTabs', params: { screen: 'Catalog' } },
+            { name: 'OrderConfirmation', params: { orderId: params.orderId } },
+          ],
+        });
       } else {
         setFailure(
           typeof result.payload === 'string'

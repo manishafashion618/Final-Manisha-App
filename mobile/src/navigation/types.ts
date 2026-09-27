@@ -38,8 +38,25 @@ export type RootStackParamList = {
    * No params is the ordinary cart checkout. `buyNow` switches the screen to a
    * single-product order that leaves the saved cart untouched.
    */
-  Checkout: { buyNow?: { productId: string; quantity: number } } | undefined;
-  RazorpayCheckout: { orderId: string; handle: RazorpayHandle };
+  Checkout:
+    | {
+        buyNow?: { productId: string; quantity: number };
+        /**
+         * Set by RazorpayCheckout when the customer closed the sheet or the
+         * payment failed: the order exists but is not placed, and can be paid
+         * with the same handle.
+         */
+        paymentOutcome?: { orderId: string; handle: RazorpayHandle; message: string };
+      }
+    | undefined;
+  RazorpayCheckout: {
+    orderId: string;
+    handle: RazorpayHandle;
+    /** Where to go back to if the payment does not complete. */
+    returnTo?: 'checkout' | 'order';
+    /** Shown in the Razorpay sheet, e.g. "Shipping charge — pay the rest on delivery". */
+    description?: string;
+  };
   OrderConfirmation: { orderId: string };
   OrderDetail: { orderId: string };
   Addresses: { selectMode?: boolean } | undefined;

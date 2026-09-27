@@ -1,3 +1,4 @@
+import { AWAITING_ONLINE_PAYMENT } from './order.service';
 import { Order } from '../models/order.model';
 import { User } from '../models/user.model';
 import * as productRepository from '../repositories/product.repository';
@@ -45,7 +46,8 @@ export async function getDashboard(viewer: AuthenticatedUser) {
       {
         $match: {
           createdAt: { $gte: startOfDay },
-          orderStatus: { $ne: 'cancelled' },
+          // Unpaid orders are not revenue: they may never be paid.
+          orderStatus: { $nin: ['cancelled', 'pending_payment'] },
         },
       },
       { $group: { _id: null, total: { $sum: '$totalAmount' } } },
@@ -59,9 +61,9 @@ export async function getDashboard(viewer: AuthenticatedUser) {
     // Online checkouts still unpaid after an hour: abandoned, or a payment
     // whose confirmation never arrived. The expiry sweep cancels them at
     // PENDING_PAYMENT_TTL_MINUTES; a number here that stays up means it is not.
+    // Includes COD orders whose shipping charge was never paid.
     Order.countDocuments({
-      paymentMethod: 'razorpay',
-      paymentStatus: 'pending',
+      ...AWAITING_ONLINE_PAYMENT,
       createdAt: { $lt: new Date(Date.now() - 60 * 60 * 1000) },
     }),
     // Money owed back: cancelled after payment with no refund, or a failed one.

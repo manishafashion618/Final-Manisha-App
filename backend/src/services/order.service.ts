@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import type { FilterQuery } from 'mongoose';
 import { env } from '../config/env';
 import { logger } from '../config/logger';
 import { Cart } from '../models/cart.model';
@@ -31,8 +32,16 @@ export interface SerializedOrder {
   paymentMethod: PaymentMethod;
   paymentStatus: IOrder['paymentStatus'];
   subtotal: number;
+  /** Same as subtotal: the items total, named for the COD breakdown. */
+  itemsTotal: number;
   shippingCharge: number;
   totalAmount: number;
+  /** Collected online via Razorpay (the shipping charge, for COD). */
+  amountPaidOnline: number;
+  /** Collected in cash by the courier (the items total, for COD). */
+  amountDueOnDelivery: number;
+  /** Created, but its online payment has not been captured: not a real order yet. */
+  awaitingPayment: boolean;
   currency: string;
   orderStatus: OrderStatus;
   statusHistory: Array<{ status: OrderStatus; at: string; note?: string }>;
@@ -87,8 +96,12 @@ export function serializeOrder(
     paymentMethod: order.paymentMethod,
     paymentStatus: order.paymentStatus,
     subtotal: order.subtotal,
+    itemsTotal: order.subtotal,
     shippingCharge: order.shippingCharge,
     totalAmount: order.totalAmount,
+    amountPaidOnline: amountsOf(order).paidOnline,
+    amountDueOnDelivery: amountsOf(order).dueOnDelivery,
+    awaitingPayment: order.orderStatus === 'pending_payment',
     currency: order.currency,
     orderStatus: order.orderStatus,
     statusHistory: order.statusHistory.map((event) => ({
@@ -99,7 +112,9 @@ export function serializeOrder(
     // PRD 4.5 — cancellable only while still "placed", before processing
     // begins, and only while nothing has been paid (a paid order needs a refund,
     // which the store handles).
-    cancellable: order.orderStatus === 'placed' && order.paymentStatus !== 'paid',
+    cancellable:
+      (order.orderStatus === 'placed' || order.orderStatus === 'pending_payment') &&
+      order.paymentStatus !== 'paid',
     cancellationRequestable:
       order.paymentStatus === 'paid' &&
       (order.orderStatus === 'placed' || order.orderStatus === 'processing') &&
@@ -137,6 +152,75 @@ export function serializeOrder(
     createdAt: order.createdAt.toISOString(),
     updatedAt: order.updatedAt.toISOString(),
   };
+}
+
+/**
+ * How the order's money splits between online and cash. Orders created before
+ * the split was stored fall back to how they worked then: an online order was
+ * paid entirely online, a COD order entirely in cash.
+ */
+export function amountsOf(
+  order: Pick<IOrder, 'paymentMethod' | 'totalAmount' | 'amountPaidOnline' | 'amountDueOnDelivery'>,
+): { paidOnline: number; dueOnDelivery: number } {
+  if (typeof order.amountPaidOnline === 'number' && typeof order.amountDueOnDelivery === 'number') {
+    return { paidOnline: order.amountPaidOnline, dueOnDelivery: order.amountDueOnDelivery };
+  }
+  return order.paymentMethod === 'razorpay'
+    ? { paidOnline: order.totalAmount, dueOnDelivery: 0 }
+    : { paidOnline: 0, dueOnDelivery: order.totalAmount };
+}
+
+/**
+ * Orders whose online payment is still outstanding. New orders wait in
+ * `pending_payment`; online orders created before that status existed stayed
+ * `placed` while unpaid. A failed attempt counts as outstanding: the customer
+ * can retry within the same Razorpay order until it expires.
+ */
+export const AWAITING_ONLINE_PAYMENT: FilterQuery<IOrder> = {
+  paymentStatus: { $in: ['pending', 'failed'] },
+  $or: [{ orderStatus: 'pending_payment' }, { paymentMethod: 'razorpay', orderStatus: 'placed' }],
+};
+
+const rupees = (paise: number) => `₹${(paise / 100).toFixed(paise % 100 ? 2 : 0)}`;
+
+/**
+ * Records a captured online payment — the ONE place an order becomes paid,
+ * whichever of the app's confirm, the webhook or the expiry sweep gets there
+ * first. Conditional updates make it idempotent: once one caller has applied
+ * it, the others match nothing and change nothing. A `pending_payment` order
+ * becomes a real, `placed` order here; the cart it came from is emptied.
+ */
+async function markOnlinePaymentCaptured(
+  match: FilterQuery<IOrder>,
+  payment: { razorpayPaymentId?: string; razorpaySignature?: string; at: Date },
+): Promise<IOrder | null> {
+  const paid = {
+    paymentStatus: 'paid',
+    'payment.paidAt': payment.at,
+    ...(payment.razorpayPaymentId ? { 'payment.razorpayPaymentId': payment.razorpayPaymentId } : {}),
+    ...(payment.razorpaySignature ? { 'payment.razorpaySignature': payment.razorpaySignature } : {}),
+  };
+  const outstanding = { paymentStatus: { $in: ['pending', 'failed'] } };
+
+  const confirmed = await Order.findOneAndUpdate(
+    { ...match, ...outstanding, orderStatus: 'pending_payment' },
+    {
+      $set: { ...paid, orderStatus: 'placed' },
+      $push: { statusHistory: { status: 'placed', at: payment.at, note: 'Payment received' } },
+    },
+    { new: true },
+  );
+  const updated =
+    confirmed ??
+    // An online order from before `pending_payment`: already `placed`.
+    (await Order.findOneAndUpdate({ ...match, ...outstanding, orderStatus: 'placed' }, { $set: paid }, { new: true }));
+
+  // A Buy-now order was never built from the cart, so clearing it here would
+  // silently delete items the customer has not checked out.
+  if (updated && !updated.fromBuyNow) {
+    await Cart.updateOne({ userId: updated.userId }, { $set: { items: [] } });
+  }
+  return updated;
 }
 
 function refundStateOf(order: IOrder): SerializedOrder['refundState'] {
@@ -253,9 +337,32 @@ export async function checkout(
   const { shippingCharge } = await codService.resolveShipping(input.paymentMethod, address.state);
   const totalAmount = subtotal + shippingCharge;
 
+  // What is paid online now, and what the courier collects in cash. For Cash
+  // on Delivery the per-state shipping/COD charge is paid online before the
+  // order is confirmed and only the items are paid at the door — unless the
+  // charge is ₹0 (nothing to pay online: confirmed at once) or the store has
+  // turned the rule off (COD_SHIPPING_PAID_ONLINE=false: all cash, as before).
+  const codShippingOnline =
+    input.paymentMethod === 'cod' && env.COD_SHIPPING_PAID_ONLINE && shippingCharge > 0;
+  const amountPaidOnline =
+    input.paymentMethod === 'razorpay' ? totalAmount : codShippingOnline ? shippingCharge : 0;
+  const amountDueOnDelivery = totalAmount - amountPaidOnline;
+  const needsOnlinePayment = amountPaidOnline > 0;
+
+  // Checked before any stock is reserved: an order that owes money online
+  // cannot be taken without Razorpay.
+  if (needsOnlinePayment && !paymentService.onlinePaymentAvailable()) {
+    throw ApiError.serviceUnavailable(
+      input.paymentMethod === 'cod'
+        ? `Cash on delivery needs the ${rupees(shippingCharge)} shipping charge paid online, and online payment isn't available right now. Please try again later.`
+        : 'Online payment is not available right now. Please choose Cash on Delivery.',
+    );
+  }
+
   // Reserve stock before creating the order so two concurrent checkouts cannot
   // oversell. Anything that fails afterwards restores what was taken.
   const reserved: Array<{ productId: string; quantity: number }> = [];
+  let createdOrderId: IOrder['_id'] | null = null;
   try {
     for (const item of items) {
       const ok = await productRepository.decrementStock(item.productId.toString(), item.quantity);
@@ -283,14 +390,20 @@ export async function checkout(
       subtotal,
       shippingCharge,
       totalAmount,
+      amountPaidOnline,
+      amountDueOnDelivery,
       currency: env.CURRENCY,
-      orderStatus: 'placed',
-      statusHistory: [{ status: 'placed', at: new Date() }],
+      // Not a real order until the online part is captured.
+      orderStatus: needsOnlinePayment ? 'pending_payment' : 'placed',
+      statusHistory: [{ status: needsOnlinePayment ? 'pending_payment' : 'placed', at: new Date() }],
       fromBuyNow: Boolean(buyNow),
     });
+    createdOrderId = order._id;
 
-    if (input.paymentMethod === 'razorpay') {
-      const handle = await paymentService.createRazorpayOrder(totalAmount, order.orderNumber);
+    if (needsOnlinePayment) {
+      // Exactly the online amount: the whole total online, the shipping
+      // charge alone for COD. Never a figure from the client.
+      const handle = await paymentService.createRazorpayOrder(amountPaidOnline, order.orderNumber);
       order.payment = { razorpayOrderId: handle.razorpayOrderId };
       await order.save();
       // The cart is deliberately kept until payment succeeds, so an abandoned
@@ -305,8 +418,28 @@ export async function checkout(
     for (const entry of reserved) {
       await productRepository.incrementStock(entry.productId, entry.quantity);
     }
+    // No orphan: an order whose Razorpay order could not be created was never
+    // payable, so it must not linger as "awaiting payment".
+    if (createdOrderId) await Order.deleteOne({ _id: createdOrderId });
     throw error;
   }
+}
+
+/**
+ * The Razorpay handle for one of the caller's orders that still awaits its
+ * online payment — for "Try again" after the sheet was closed or a payment
+ * failed. The same Razorpay order accepts a new attempt, so the stock already
+ * reserved is reused rather than a second order being placed.
+ */
+export async function getPaymentHandle(
+  viewer: AuthenticatedUser,
+  orderId: string,
+): Promise<paymentService.RazorpayOrderHandle> {
+  const order = await Order.findOne({ _id: orderId, userId: viewer.id, ...AWAITING_ONLINE_PAYMENT });
+  if (!order?.payment?.razorpayOrderId) {
+    throw ApiError.notFound('This order has no payment waiting.');
+  }
+  return paymentService.handleFor(order.payment.razorpayOrderId, amountsOf(order).paidOnline);
 }
 
 /**
@@ -331,9 +464,11 @@ export async function confirmPayment(
   });
 
   if (!valid) {
-    order.paymentStatus = 'failed';
-    order.payment.failureReason = 'Signature verification failed';
-    await order.save();
+    // Recorded, but never overwrites a payment the webhook already confirmed.
+    await Order.updateOne(
+      { _id: order._id, paymentStatus: 'pending' },
+      { $set: { paymentStatus: 'failed', 'payment.failureReason': 'Signature verification failed' } },
+    );
     throw ApiError.badRequest('Payment could not be verified');
   }
 
@@ -346,19 +481,13 @@ export async function confirmPayment(
     );
   }
 
-  order.paymentStatus = 'paid';
-  order.payment.razorpayPaymentId = input.razorpayPaymentId;
-  order.payment.razorpaySignature = input.razorpaySignature;
-  order.payment.paidAt = new Date();
-  await order.save();
-
-  // A Buy-now order was never built from the cart, so clearing it here would
-  // silently delete items the customer has not checked out.
-  if (!order.fromBuyNow) {
-    await Cart.updateOne({ userId: viewer.id }, { $set: { items: [] } });
-  }
-
-  return serializeOrder(order);
+  // Whichever of this and the webhook arrives first confirms the order; the
+  // other finds it already paid and changes nothing.
+  const updated = await markOnlinePaymentCaptured(
+    { _id: order._id },
+    { razorpayPaymentId: input.razorpayPaymentId, razorpaySignature: input.razorpaySignature, at: new Date() },
+  );
+  return serializeOrder(updated ?? ((await Order.findById(order._id)) as IOrder));
 }
 
 /**
@@ -416,34 +545,20 @@ export async function handlePaymentWebhook(event: {
     return;
   }
 
-  if (event.event === 'payment.captured' && order.paymentStatus !== 'paid' && order.paymentStatus !== 'refunded') {
-    order.paymentStatus = 'paid';
-    order.payment = {
-      ...order.payment,
-      razorpayPaymentId: entity?.id,
-      paidAt: new Date(),
-    };
-    await order.save();
-    // Same rule as confirmPayment: a Buy-now order leaves the cart alone.
-    if (!order.fromBuyNow) {
-      await Cart.updateOne({ userId: order.userId }, { $set: { items: [] } });
-    }
+  if (event.event === 'payment.captured') {
+    // Idempotent with the app's confirm: only the first to arrive applies.
+    await markOnlinePaymentCaptured({ _id: order._id }, { razorpayPaymentId: entity?.id, at: new Date() });
     return;
   }
 
-  if (event.event === 'payment.failed' && order.paymentStatus === 'pending') {
-    order.paymentStatus = 'failed';
-    order.payment = {
-      ...order.payment,
-      failureReason: entity?.error_description ?? 'Payment failed',
-    };
-    // Release the stock this abandoned order was holding.
-    await releaseStock(order);
-    order.orderStatus = 'cancelled';
-    order.cancelledAt = new Date();
-    order.cancellationReason = 'Payment failed';
-    order.statusHistory.push({ status: 'cancelled', at: new Date(), note: 'Payment failed' });
-    await order.save();
+  // A failed attempt does not end the order: the customer can try again in
+  // the same Razorpay order. If they never pay, the pending-payment sweep
+  // expires it and releases the stock.
+  if (event.event === 'payment.failed') {
+    await Order.updateOne(
+      { _id: order._id, paymentStatus: 'pending' },
+      { $set: { paymentStatus: 'failed', 'payment.failureReason': entity?.error_description ?? 'Payment failed' } },
+    );
   }
 }
 
@@ -496,7 +611,6 @@ export async function refundOrder(orderId: string): Promise<IOrder | null> {
   const claimed = await Order.findOneAndUpdate(
     {
       _id: orderId,
-      paymentMethod: 'razorpay',
       paymentStatus: 'paid',
       'payment.razorpayPaymentId': { $exists: true },
       $or: [{ 'refund.status': { $exists: false } }, { 'refund.status': 'failed' }],
@@ -516,7 +630,8 @@ export async function refundOrder(orderId: string): Promise<IOrder | null> {
       (await paymentService.findExistingRefund(paymentId, claimed.orderNumber)) ??
       (await paymentService.refundPayment({
         razorpayPaymentId: paymentId,
-        amountInPaise: claimed.totalAmount,
+        // Only what was paid online: the shipping charge, for COD.
+        amountInPaise: amountsOf(claimed).paidOnline,
         orderNumber: claimed.orderNumber,
       }));
     return Order.findByIdAndUpdate(
@@ -682,7 +797,7 @@ export async function cancelMyOrder(
     return serializeOrder(order);
   }
 
-  if (order.orderStatus !== 'placed') {
+  if (order.orderStatus !== 'placed' && order.orderStatus !== 'pending_payment') {
     throw ApiError.conflict(
       order.orderStatus === 'cancelled'
         ? 'This order is already cancelled.'
@@ -716,7 +831,8 @@ export async function updateOrderStatus(
     );
   }
 
-  const paidOnline = order.paymentMethod === 'razorpay' && order.paymentStatus === 'paid';
+  // Paid online: a full online order, or a COD order whose shipping was paid.
+  const paidOnline = order.paymentStatus === 'paid' && Boolean(order.payment?.razorpayPaymentId);
   if (nextStatus === 'cancelled' && paidOnline && !actor.permissions.includes(PERMISSIONS.ORDER_REFUND)) {
     throw ApiError.forbidden('This order was paid online. Only an admin can cancel it, because cancelling refunds the customer.');
   }
@@ -744,8 +860,10 @@ export async function updateOrderStatus(
 /* ── Unfinished online payments ─────────────────────────────────────────── */
 
 /**
- * Expires online orders left unpaid for PENDING_PAYMENT_TTL_MINUTES: the order
- * is cancelled with paymentStatus "expired" and its stock goes back on sale.
+ * Expires orders whose online payment never arrived within
+ * PENDING_PAYMENT_TTL_MINUTES — online orders, and COD orders whose shipping
+ * charge was not paid: the order is cancelled with paymentStatus "expired"
+ * and its stock goes back on sale.
  *
  * Each order is claimed atomically, so overlapping sweeps (or a sweep racing a
  * webhook) act on it once. Before expiring, Razorpay is asked whether a
@@ -755,12 +873,8 @@ export async function updateOrderStatus(
  */
 export async function expireStalePendingOrders(now: Date = new Date()): Promise<{ expired: number; paid: number }> {
   const cutoff = new Date(now.getTime() - env.PENDING_PAYMENT_TTL_MINUTES * 60_000);
-  const stale = await Order.find({
-    paymentMethod: 'razorpay',
-    paymentStatus: 'pending',
-    orderStatus: 'placed',
-    createdAt: { $lt: cutoff },
-  })
+  // Online orders and COD orders whose shipping charge was never paid alike.
+  const stale = await Order.find({ ...AWAITING_ONLINE_PAYMENT, createdAt: { $lt: cutoff } })
     .limit(200)
     .select('_id payment.razorpayOrderId');
 
@@ -771,17 +885,14 @@ export async function expireStalePendingOrders(now: Date = new Date()): Promise<
     if (razorpayOrderId) {
       const capturedId = await paymentService.capturedPaymentFor(razorpayOrderId);
       if (capturedId) {
-        const marked = await Order.findOneAndUpdate(
-          { _id: candidate._id, paymentStatus: 'pending' },
-          { $set: { paymentStatus: 'paid', 'payment.razorpayPaymentId': capturedId, 'payment.paidAt': now } },
-        );
+        const marked = await markOnlinePaymentCaptured({ _id: candidate._id }, { razorpayPaymentId: capturedId, at: now });
         if (marked) paid += 1;
         continue;
       }
     }
 
     const claimed = await Order.findOneAndUpdate(
-      { _id: candidate._id, paymentStatus: 'pending', orderStatus: 'placed' },
+      { _id: candidate._id, ...AWAITING_ONLINE_PAYMENT },
       {
         $set: {
           paymentStatus: 'expired',

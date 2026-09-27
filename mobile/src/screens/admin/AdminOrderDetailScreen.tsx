@@ -17,6 +17,7 @@ import { ApiError } from '../../api/client';
 import { PERMISSIONS, usePermission } from '../../store/hooks';
 import { colors, orderStatusStyle, radius, shadow, spacing, typography } from '../../theme';
 import { formatPaise } from '../../utils/money';
+import { codCollectionLine, moneySplit } from '../../utils/orderMoney';
 import type { RootStackParamList } from '../../navigation/types';
 import type { Order, OrderStatus } from '../../api/types';
 
@@ -27,6 +28,8 @@ type Route = RouteProp<RootStackParamList, 'AdminOrderDetail'>;
  * UI only ever offers a move the server will allow.
  */
 const NEXT_STATUS: Record<OrderStatus, OrderStatus[]> = {
+  // Only a captured payment makes it `placed`; unpaid, it can only be cancelled.
+  pending_payment: ['cancelled'],
   placed: ['processing', 'cancelled'],
   processing: ['shipped', 'cancelled'],
   shipped: ['delivered'],
@@ -221,7 +224,27 @@ export function AdminOrderDetailScreen() {
               label="Shipping"
               value={order.shippingCharge === 0 ? 'Free' : formatPaise(order.shippingCharge)}
             />
+            {order.paymentMethod === 'cod' ? (
+              <>
+                <Row
+                  label={order.paymentStatus === 'refunded' ? 'Refunded online' : 'Paid online · shipping'}
+                  value={formatPaise(moneySplit(order).paidOnline)}
+                />
+                <Row
+                  label="Collect on delivery"
+                  right={
+                    <StatusText
+                      label={formatPaise(moneySplit(order).dueOnDelivery)}
+                      color={colors.text}
+                    />
+                  }
+                />
+              </>
+            ) : null}
           </Group>
+          {codCollectionLine(order) && order.orderStatus !== 'cancelled' ? (
+            <Text style={styles.codNote}>{codCollectionLine(order)}</Text>
+          ) : null}
         </View>
 
         <View style={styles.block}>
@@ -305,6 +328,12 @@ export function AdminOrderDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  codNote: {
+    ...typography.footnoteStrong,
+    color: colors.text,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.xs,
+  },
   requestNote: {
     ...typography.footnote,
     color: colors.warning,

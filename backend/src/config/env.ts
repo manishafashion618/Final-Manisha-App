@@ -52,6 +52,16 @@ const envSchema = z.object({
    * until a state is configured, so COD works on a fresh database.
    */
   COD_SHIPPING_CHARGE: z.coerce.number().int().nonnegative().default(5000),
+  /**
+   * COD customers pay the shipping/COD charge ONLINE (Razorpay) before the
+   * order is confirmed; only the product amount is collected in cash. Needs
+   * Razorpay configured — without it, COD with a charge cannot be placed. Set
+   * to false to collect everything in cash (the previous behaviour).
+   */
+  COD_SHIPPING_PAID_ONLINE: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
   /** Set to false to make COD opt-in: off everywhere except states admin enables. */
   COD_DEFAULT_ENABLED: z
     .enum(['true', 'false'])

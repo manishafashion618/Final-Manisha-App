@@ -139,12 +139,12 @@ const cartSlice = createSlice({
       .addCase(checkout.fulfilled, (state, action) => {
         state.placingOrder = false;
         state.orders = [action.payload.order, ...state.orders];
-        // A COD order empties the cart immediately; a Razorpay order keeps it
-        // until the payment is confirmed, mirroring the server. A Buy-now order
-        // was never built from the cart, so the server left it alone and so
-        // must this — otherwise the local cart would empty on screen while the
-        // real one still holds every item.
-        if (action.payload.order.paymentMethod === 'cod' && !action.payload.order.fromBuyNow) {
+        // Mirrors the server: an order confirmed at checkout (COD with nothing to
+        // pay online) empties the cart now; one that still owes an online
+        // payment — any Razorpay order, and COD whose shipping is paid online —
+        // keeps it until the payment is confirmed. A Buy-now order was never
+        // built from the cart, so it is left alone either way.
+        if (!action.payload.payment && !action.payload.order.fromBuyNow) {
           state.cart = { items: [], itemCount: 0, subtotal: 0, priceTier: 'retail', currency: 'INR' };
         }
       })

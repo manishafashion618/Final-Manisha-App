@@ -46,6 +46,11 @@ router.get('/config', authenticate, (_req, res) => {
     codDefaultEnabled: env.COD_DEFAULT_ENABLED,
     /** True when this server prices COD per state. */
     codPerStateSupported: true,
+    /**
+     * COD customers pay the shipping/COD charge online before the order is
+     * confirmed, and only the items in cash. Absent on older servers.
+     */
+    codShippingPaidOnline: env.COD_SHIPPING_PAID_ONLINE,
     prepaidShippingCharge: env.PREPAID_SHIPPING_CHARGE,
     razorpayEnabled: razorpayConfigured,
     razorpayKeyId: razorpayConfigured ? env.RAZORPAY_KEY_ID : null,
