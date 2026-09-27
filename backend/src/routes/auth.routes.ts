@@ -9,6 +9,7 @@ import {
   addressUpdateSchema,
   applyWholesaleSchema,
   confirmEmailCodeSchema,
+  deleteAccountSchema,
   forgotPasswordSchema,
   googleLoginSchema,
   logoutSchema,
@@ -66,6 +67,14 @@ router.post(
 
 // ── Authenticated ──
 router.get('/me', authenticate, authController.me);
+// Play policy: in-app account deletion. Re-auth is checked in the service.
+router.delete(
+  '/me',
+  validate({ body: deleteAccountSchema }),
+  authLimiter,
+  authenticate,
+  authController.deleteAccount,
+);
 router.patch('/me', validate({ body: updateProfileSchema }), authenticate, authController.updateProfile);
 
 // ── Verify or change the account email (emailed 6-digit code) ──

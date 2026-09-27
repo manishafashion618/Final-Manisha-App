@@ -111,6 +111,9 @@ export const requestEmailCodeSchema = z.object({
   ...reauthFields,
 });
 
+/** DELETE /auth/me — the same proof of the owner as an email change. */
+export const deleteAccountSchema = z.object({ ...reauthFields });
+
 /** Step 2: the 6-digit code from that email. */
 export const confirmEmailCodeSchema = z.object({
   otp: z

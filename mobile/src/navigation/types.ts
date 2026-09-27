@@ -62,6 +62,7 @@ export type RootStackParamList = {
   Addresses: { selectMode?: boolean } | undefined;
   AddressForm: { addressId?: string } | undefined;
   Profile: undefined;
+  DeleteAccount: undefined;
 
   // Admin
   AdminProductForm: { productId?: string } | undefined;

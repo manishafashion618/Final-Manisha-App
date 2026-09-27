@@ -194,6 +194,23 @@ export function AccountScreen() {
           </View>
         ) : null}
 
+        {/* Play policy: deletion is reachable from inside the app. Not offered
+            to an admin — that role comes from ADMIN_EMAILS, and the server
+            refuses to delete such an account here. */}
+        {user.accountType !== 'admin' ? (
+          <View style={styles.block}>
+            <Group>
+              <Row
+                icon="trash"
+                label="Delete account"
+                tone="muted"
+                chevron
+                onPress={() => navigation.navigate('DeleteAccount')}
+              />
+            </Group>
+          </View>
+        ) : null}
+
         <PressableScale onPress={handleSignOut} style={styles.logOut} accessibilityRole="button">
           <Text style={styles.logOutLabel}>Log out</Text>
         </PressableScale>

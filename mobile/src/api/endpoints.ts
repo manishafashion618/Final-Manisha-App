@@ -143,6 +143,12 @@ export const authApi = {
   /** Signs this account out on every device at once. */
   logoutAll: () => post<{ message: string }>('/auth/logout-all'),
 
+  /**
+   * Permanently deletes the account (Play policy). Needs the same proof of the
+   * owner as an email change; refused while an order is still open.
+   */
+  deleteAccount: (proof: ReauthProof) => del<{ message: string }>('/auth/me', proof),
+
   applyForWholesale: (input: { businessName?: string; gstNumber?: string; shopProofUrl?: string }) =>
     post<User>('/auth/wholesale/apply', input),
 

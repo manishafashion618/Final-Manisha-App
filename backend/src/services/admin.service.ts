@@ -154,7 +154,9 @@ export async function listUsers(filters: {
   page: number;
   limit: number;
 }) {
-  const query: Record<string, unknown> = {};
+  // Deleted accounts are anonymised shells kept only so orders still resolve;
+  // there is nothing on them for an admin to manage.
+  const query: Record<string, unknown> = { deletedAt: { $exists: false } };
   if (filters.accountType) query.accountType = filters.accountType;
   if (filters.search) {
     const pattern = new RegExp(filters.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');

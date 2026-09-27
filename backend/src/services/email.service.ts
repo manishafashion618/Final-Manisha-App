@@ -43,7 +43,7 @@ export interface SendResult {
   error?: string;
 }
 
-type CodePurpose = 'reset' | 'verify' | 'change';
+type CodePurpose = 'reset' | 'verify' | 'change' | 'delete';
 
 const COPY: Record<CodePurpose, { subject: string; heading: string; lead: string; ignore: string; log: string }> = {
   reset: {
@@ -67,6 +67,13 @@ const COPY: Record<CodePurpose, { subject: string; heading: string; lead: string
     ignore: "If you didn't ask for this, you can ignore this email — no account will be changed.",
     log: 'email change code',
   },
+  delete: {
+    subject: `Confirm deleting your ${BRAND} account`,
+    heading: 'Delete your account',
+    lead: 'Enter this code on the account deletion page to permanently delete your account.',
+    ignore: "If you didn't ask for this, ignore this email — your account stays exactly as it is.",
+    log: 'account deletion code',
+  },
 };
 
 export async function sendPasswordResetEmail(input: {
@@ -85,6 +92,15 @@ export async function sendEmailVerificationCode(input: {
   purpose: 'verify' | 'change';
 }): Promise<SendResult> {
   return sendCodeEmail(input);
+}
+
+/** The code for the public account-deletion page (web, no app needed). */
+export async function sendAccountDeletionCode(input: {
+  to: string;
+  code: string;
+  expiresInMinutes: number;
+}): Promise<SendResult> {
+  return sendCodeEmail({ ...input, purpose: 'delete' });
 }
 
 async function sendCodeEmail(input: {

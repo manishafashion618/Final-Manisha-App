@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import * as authService from '../services/auth.service';
+import * as accountService from '../services/account.service';
 import * as addressService from '../services/address.service';
 import { ApiError } from '../utils/ApiError';
 import { asyncHandler } from '../utils/asyncHandler';
@@ -130,3 +131,11 @@ export const deleteAddress = asyncHandler(async (req: Request, res: Response) =>
   res.success(await addressService.deleteAddress(req.user!.id, req.params.id));
 });
 
+
+export const deleteAccount = asyncHandler(async (req: Request, res: Response) => {
+  await accountService.deleteOwnAccount(req.user!.id, {
+    password: req.body.password,
+    googleIdToken: req.body.googleIdToken,
+  });
+  res.success({ message: 'Your account has been deleted.' });
+});

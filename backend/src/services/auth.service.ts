@@ -22,7 +22,7 @@ import * as tokenService from './token.service';
  * the next time it signs in. `staff` is left alone — this list governs the
  * admin role specifically, not every elevated role.
  */
-function isAdminEmail(email?: string): boolean {
+export function isAdminEmail(email?: string): boolean {
   if (!email) return false;
   const normalised = email.trim().toLowerCase();
   return env.ADMIN_EMAILS.some((entry) => entry.trim().toLowerCase() === normalised);
@@ -168,7 +168,7 @@ const EMAIL_CODE_LOCK_KEY = (userId: string) => `emailcode:lock:${userId}`;
  */
 const REAUTH_MAX_AGE_MS = 5 * 60 * 1000;
 
-async function requireRecentAuth(
+export async function requireRecentAuth(
   user: IUser,
   proof: { password?: string; googleIdToken?: string },
 ): Promise<void> {

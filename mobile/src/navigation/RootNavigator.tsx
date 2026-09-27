@@ -15,6 +15,7 @@ import { OrderDetailScreen } from '../screens/customer/OrderDetailScreen';
 import { AddressesScreen } from '../screens/customer/AddressesScreen';
 import { AddressFormScreen } from '../screens/customer/AddressFormScreen';
 import { ProfileScreen } from '../screens/shared/ProfileScreen';
+import { DeleteAccountScreen } from '../screens/shared/DeleteAccountScreen';
 import { AdminProductFormScreen } from '../screens/admin/AdminProductFormScreen';
 import { AdminCategoriesScreen } from '../screens/admin/AdminCategoriesScreen';
 import { AdminCodSettingsScreen } from '../screens/admin/AdminCodSettingsScreen';
@@ -99,6 +100,7 @@ export function RootNavigator() {
             <Stack.Screen name="AdminCodSettings" component={AdminCodSettingsScreen} />
             <Stack.Screen name="ProductDetail" component={ProductDetailScreen} />
             <Stack.Screen name="Profile" component={ProfileScreen} />
+            <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} />
           </Stack.Group>
         ) : (
           <Stack.Group screenOptions={{ headerShown: false }}>
@@ -148,6 +150,7 @@ export function RootNavigator() {
               options={{ presentation: 'modal' }}
             />
             <Stack.Screen name="Profile" component={ProfileScreen} />
+            <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} />
           </Stack.Group>
         )}
       </Stack.Navigator>
