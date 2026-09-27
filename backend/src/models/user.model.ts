@@ -76,6 +76,22 @@ export interface IUser extends Document<Types.ObjectId> {
   };
   addresses: Types.DocumentArray<IAddress>;
   isActive: boolean;
+  /**
+   * Bumped whenever every existing session must die at once: password reset,
+   * email change, role change, deactivation, the Google pre-hijack guard,
+   * logout-all and account deletion.
+   *
+   * Both token types carry the value they were minted with, and `authenticate`
+   * compares it against the user's current one. Revoking refresh tokens alone
+   * left a stolen ACCESS token working until its own expiry (up to
+   * JWT_ACCESS_TTL) — precisely the window after a victim changes their
+   * password. This closes it on the very next request.
+   */
+  tokenVersion: number;
+  /** Last successful password / Google proof, for re-auth on sensitive actions. */
+  lastAuthAt?: Date;
+  /** Set when the account has been deleted; personal data is anonymised. */
+  deletedAt?: Date;
   lastLoginAt?: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -144,6 +160,11 @@ const userSchema = new Schema<IUser>(
     },
     addresses: { type: [addressSchema], default: [] },
     isActive: { type: Boolean, default: true },
+    // Legacy rows have no field at all; `default` covers new ones and the
+    // comparison in authenticate treats a missing value as 0.
+    tokenVersion: { type: Number, default: 0, required: true },
+    lastAuthAt: { type: Date },
+    deletedAt: { type: Date },
     lastLoginAt: { type: Date },
   },
   { timestamps: true },

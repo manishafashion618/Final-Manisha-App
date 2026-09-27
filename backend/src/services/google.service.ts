@@ -17,6 +17,12 @@ export interface GoogleIdentity {
   email: string;
   name?: string;
   picture?: string;
+  /**
+   * When Google minted the token (`iat`). An ID token stays valid for an
+   * hour, so re-authentication checks this rather than mere validity — an
+   * hour-old token does not prove the owner is present now.
+   */
+  issuedAt?: Date;
 }
 
 export async function verifyGoogleIdToken(idToken: string): Promise<GoogleIdentity> {
@@ -55,5 +61,6 @@ export async function verifyGoogleIdToken(idToken: string): Promise<GoogleIdenti
     email: payload.email.toLowerCase(),
     name: payload.name,
     picture: payload.picture,
+    issuedAt: payload.iat ? new Date(payload.iat * 1000) : undefined,
   };
 }

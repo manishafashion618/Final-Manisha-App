@@ -1,6 +1,8 @@
 import { AWAITING_ONLINE_PAYMENT } from './order.service';
 import { Order } from '../models/order.model';
-import { User } from '../models/user.model';
+import { User, type IUser } from '../models/user.model';
+import { RoleChange } from '../models/roleChange.model';
+import { logger } from '../config/logger';
 import * as productRepository from '../repositories/product.repository';
 import { serializeProducts } from '../serializers/product.serializer';
 import { serializeUser, type SerializedUser } from '../serializers/user.serializer';
@@ -185,23 +187,83 @@ export async function listUsers(filters: {
 export async function setAccountRole(
   actor: AuthenticatedUser,
   userId: string,
-  accountType: 'retail' | 'staff' | 'admin',
+  accountType: 'retail' | 'staff',
 ): Promise<SerializedUser> {
   if (userId === actor.id) {
     throw ApiError.badRequest('You cannot change your own role.');
+  }
+  // Belt and braces with the validator: admin is granted only by a verified
+  // ADMIN_EMAILS address, never by an API call.
+  if ((accountType as string) === 'admin') {
+    throw ApiError.badRequest('Admin is granted through ADMIN_EMAILS, not this endpoint.');
   }
 
   const user = await User.findById(userId);
   if (!user) throw ApiError.notFound('Account not found');
 
+  const previousRole = user.accountType;
   user.accountType = accountType;
   // None of the assignable roles carry wholesale pricing — that is granted only
   // through the approval flow — so any prior wholesale state is cleared.
   user.wholesaleStatus = 'none';
   await user.save();
-  await tokenService.revokeAllSessions(user._id);
+  // Bumps tokenVersion as well as revoking refresh tokens, so the old
+  // permission set dies on the next request rather than at token expiry.
+  await tokenService.revokeEverySession(user._id);
+  await recordAccountChange(actor, user, 'role', previousRole, accountType);
 
   return serializeUser(user);
+}
+
+/**
+ * Appends to the role/activation trail. Never allowed to fail the action it
+ * describes — a log write that throws must not leave the role half-changed.
+ */
+async function recordAccountChange(
+  actor: AuthenticatedUser,
+  target: IUser,
+  action: 'role' | 'active',
+  from: string,
+  to: string,
+): Promise<void> {
+  try {
+    const actorDoc = await User.findById(actor.id).select('email');
+    await RoleChange.create({
+      actorId: actor.id,
+      actorEmail: actorDoc?.email,
+      targetId: target._id,
+      targetEmail: target.email,
+      action,
+      from,
+      to,
+    });
+  } catch (error) {
+    logger.error('Failed to record an account change in the audit trail', error);
+  }
+}
+
+/** The newest role/activation changes, for the admin accounts screen. */
+export async function listRoleChanges(limit = 50): Promise<
+  Array<{
+    id: string;
+    actorEmail?: string;
+    targetEmail?: string;
+    action: 'role' | 'active';
+    from: string;
+    to: string;
+    at: string;
+  }>
+> {
+  const rows = await RoleChange.find().sort({ createdAt: -1 }).limit(Math.min(limit, 200));
+  return rows.map((row) => ({
+    id: row._id.toString(),
+    actorEmail: row.actorEmail,
+    targetEmail: row.targetEmail,
+    action: row.action,
+    from: row.from,
+    to: row.to,
+    at: row.createdAt.toISOString(),
+  }));
 }
 
 export async function setAccountActive(
@@ -216,9 +278,14 @@ export async function setAccountActive(
   const user = await User.findById(userId);
   if (!user) throw ApiError.notFound('Account not found');
 
+  const wasActive = user.isActive;
   user.isActive = isActive;
   await user.save();
-  if (!isActive) await tokenService.revokeAllSessions(user._id);
+  // Deactivation must bite immediately, not when the access token expires.
+  if (!isActive) await tokenService.revokeEverySession(user._id);
+  if (wasActive !== isActive) {
+    await recordAccountChange(actor, user, 'active', String(wasActive), String(isActive));
+  }
 
   return serializeUser(user);
 }

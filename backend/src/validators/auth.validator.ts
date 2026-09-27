@@ -91,9 +91,24 @@ export const updateProfileSchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),
 });
 
+/**
+ * Proof that the person at the keyboard is the account owner, not someone who
+ * walked up to an unlocked phone or is replaying a stolen access token.
+ *
+ * Whichever credential the account actually has: a password account sends the
+ * password, a Google-only account sends a freshly minted ID token. Required on
+ * both steps of the email-change flow, because changing the address is what
+ * takes an account away from its owner for good.
+ */
+const reauthFields = {
+  password: z.string().min(1).max(128).optional(),
+  googleIdToken: z.string().min(1).max(4096).optional(),
+};
+
 /** Step 1 of verify/change email: the address the code is sent to. */
 export const requestEmailCodeSchema = z.object({
   email: emailField,
+  ...reauthFields,
 });
 
 /** Step 2: the 6-digit code from that email. */
@@ -103,6 +118,7 @@ export const confirmEmailCodeSchema = z.object({
     .trim()
     .regex(/^\d{6}$/, 'Enter the 6-digit code from your email'),
   deviceId: z.string().max(120).optional(),
+  ...reauthFields,
 });
 
 export const applyWholesaleSchema = wholesaleApplication;

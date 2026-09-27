@@ -52,3 +52,7 @@ export const setActive = asyncHandler(async (req: Request, res: Response) => {
   res.success(await adminService.setAccountActive(req.user!, req.params.userId, req.body.isActive));
 });
 
+
+export const roleChanges = asyncHandler(async (_req: Request, res: Response) => {
+  res.success(await adminService.listRoleChanges());
+});

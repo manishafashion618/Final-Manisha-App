@@ -1,6 +1,6 @@
 import { createAsyncThunk, createSlice, isAnyOf, type PayloadAction } from '@reduxjs/toolkit';
 import * as Device from 'expo-device';
-import { authApi } from '../../api/endpoints';
+import { authApi, type ReauthProof } from '../../api/endpoints';
 import { ApiError } from '../../api/client';
 import {
   clearTokens,
@@ -242,13 +242,18 @@ export const updateProfile = createAsyncThunk<User, { name?: string }>(
  * response carries a fresh token pair for this device — stored here the same
  * way a sign-in stores it.
  */
-export const confirmEmailCode = createAsyncThunk<User, { otp: string }, { rejectValue: string }>(
+export const confirmEmailCode = createAsyncThunk<
+  User,
+  { otp: string } & ReauthProof,
+  { rejectValue: string }
+>(
   'auth/confirmEmailCode',
-  async ({ otp }, { rejectWithValue }) => {
+  async ({ otp, ...proof }, { rejectWithValue }) => {
     try {
       const result = await authApi.confirmEmailCode({
         otp,
         deviceId: Device.osInternalBuildId ?? Device.modelId ?? undefined,
+        ...proof,
       });
       await saveTokens(result.accessToken, result.refreshToken);
       return result.user;

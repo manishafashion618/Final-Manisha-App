@@ -54,12 +54,20 @@ export interface JwtAccessPayload {
   sub: string;
   accountType: AccountType;
   wholesaleStatus: WholesaleStatus;
+  /**
+   * The user's tokenVersion when this token was minted. `authenticate`
+   * refuses the token once the user's value has moved on. Absent on tokens
+   * issued before this existed, which are read as version 0.
+   */
+  tv?: number;
   tokenType: 'access';
 }
 
 export interface JwtRefreshPayload {
   sub: string;
   jti: string;
+  /** As above — a refresh token from before a bump cannot mint a new pair. */
+  tv?: number;
   tokenType: 'refresh';
 }
 

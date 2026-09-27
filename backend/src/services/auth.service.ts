@@ -29,6 +29,15 @@ function isAdminEmail(email?: string): boolean {
 }
 
 /**
+ * A role that moved ends every other session. Done in memory so every caller
+ * — which saves and then issues tokens — persists the bump and hands out a
+ * pair that already carries it; tokens minted before the change stop working.
+ */
+function bumpTokenVersion(user: IUser): void {
+  user.tokenVersion = (user.tokenVersion ?? 0) + 1;
+}
+
+/**
  * Returns true when the caller must persist the document afterwards.
  * Silent no-op for staff, and for anyone whose role already matches the list.
  */
@@ -38,6 +47,7 @@ function syncAdminRole(user: IUser): boolean {
   if (shouldBeAdmin && user.accountType !== 'admin') {
     user.accountType = 'admin';
     user.wholesaleStatus = 'none';
+    bumpTokenVersion(user);
     return true;
   }
 
@@ -45,6 +55,7 @@ function syncAdminRole(user: IUser): boolean {
     // Fall back to the ordinary tier: an approved wholesale buyer who was
     // temporarily an admin keeps their wholesale pricing, everyone else is retail.
     user.accountType = user.wholesaleStatus === 'approved' ? 'wholesale' : 'retail';
+    bumpTokenVersion(user);
     return true;
   }
 
@@ -81,19 +92,33 @@ export async function refreshSession(
   // whitelist is re-applied here too, so an address taken off ADMIN_EMAILS
   // loses admin at the next refresh — not only at the next full sign-in,
   // which a 90-day refresh token could postpone for months.
-  if (syncAdminRole(user)) await user.save();
+  let issued = tokens;
+  if (syncAdminRole(user)) {
+    await user.save();
+    // The pair rotated above was minted with the old version and is already
+    // dead. Replace it rather than return tokens that fail on first use.
+    await tokenService.revokeRefreshToken(tokens.refreshToken);
+    issued = await tokenService.issueTokens(user, context);
+  }
 
   return {
     user: serializeUser(user),
-    accessToken: tokens.accessToken,
-    refreshToken: tokens.refreshToken,
-    accessTokenExpiresIn: tokens.accessTokenExpiresIn,
-    refreshTokenExpiresAt: tokens.refreshTokenExpiresAt.toISOString(),
+    accessToken: issued.accessToken,
+    refreshToken: issued.refreshToken,
+    accessTokenExpiresIn: issued.accessTokenExpiresIn,
+    refreshTokenExpiresAt: issued.refreshTokenExpiresAt.toISOString(),
   };
 }
 
 export async function logout(refreshToken: string): Promise<void> {
   await tokenService.revokeRefreshToken(refreshToken);
+}
+
+/** Signs the account out on every device, including access tokens in flight. */
+export async function logoutEverywhere(userId: string): Promise<void> {
+  const user = await User.findById(userId).select('_id');
+  if (!user) throw ApiError.notFound('Account not found');
+  await tokenService.revokeEverySession(user._id);
 }
 
 export async function getProfile(userId: string): Promise<SerializedUser> {
@@ -129,13 +154,58 @@ const EMAIL_CODE_LOCK_KEY = (userId: string) => `emailcode:lock:${userId}`;
  * address verifies that address; sending it to a NEW one changes the email
  * once the code comes back. Nothing about the account changes until then.
  */
+/**
+ * Proves the caller is the account owner, right now.
+ *
+ * An access token only says someone signed in at some point on this device.
+ * Changing the account's email address hands the account to whoever owns the
+ * new inbox, so it demands the credential itself: the password for a password
+ * account, or a freshly minted Google ID token for a Google-only one.
+ *
+ * The Google token must be recent — an ID token is valid for an hour, and
+ * accepting an old one would let a token captured earlier stand in for the
+ * owner being present.
+ */
+const REAUTH_MAX_AGE_MS = 5 * 60 * 1000;
+
+async function requireRecentAuth(
+  user: IUser,
+  proof: { password?: string; googleIdToken?: string },
+): Promise<void> {
+  if (user.passwordHash) {
+    if (!proof.password) {
+      throw new ApiError(401, 'Enter your password to continue.', 'REAUTH_REQUIRED');
+    }
+    const ok = await passwordService.verifyPassword(proof.password, user.passwordHash);
+    if (!ok) {
+      throw new ApiError(401, 'That password is not correct.', 'REAUTH_FAILED');
+    }
+    user.lastAuthAt = new Date();
+    return;
+  }
+
+  if (!proof.googleIdToken) {
+    throw new ApiError(401, 'Sign in with Google again to continue.', 'REAUTH_REQUIRED');
+  }
+  const identity = await googleService.verifyGoogleIdToken(proof.googleIdToken);
+  if (!user.googleId || identity.googleId !== user.googleId) {
+    throw new ApiError(401, 'That Google account does not match this one.', 'REAUTH_FAILED');
+  }
+  if (identity.issuedAt && Date.now() - identity.issuedAt.getTime() > REAUTH_MAX_AGE_MS) {
+    throw new ApiError(401, 'Sign in with Google again to continue.', 'REAUTH_REQUIRED');
+  }
+  user.lastAuthAt = new Date();
+}
+
 export async function requestEmailCode(
   userId: string,
   email: string,
+  proof: { password?: string; googleIdToken?: string } = {},
 ): Promise<{ email: string; purpose: 'verify' | 'change'; expiresInMinutes: number }> {
   const target = email.trim().toLowerCase();
-  const user = await User.findById(userId);
+  const user = await User.findById(userId).select('+passwordHash');
   if (!user) throw ApiError.notFound('Account not found');
+  await requireRecentAuth(user, proof);
 
   const purpose = target === user.email ? 'verify' : 'change';
   if (purpose === 'verify' && user.emailVerified) {
@@ -185,6 +255,9 @@ export async function requestEmailCode(
 export async function confirmEmailCode(input: {
   userId: string;
   otp: string;
+  /** Same proof as step 1: the code alone is not enough to move an address. */
+  password?: string;
+  googleIdToken?: string;
   context?: LoginContext;
 }): Promise<AuthResult & { changed: boolean }> {
   const { userId, otp, context = {} } = input;
@@ -197,8 +270,13 @@ export async function confirmEmailCode(input: {
     );
   }
 
-  const user = await User.findById(userId).select('+pendingEmail +emailCodeHash +emailCodeExpiresAt');
+  const user = await User.findById(userId).select(
+    '+pendingEmail +emailCodeHash +emailCodeExpiresAt +passwordHash',
+  );
   if (!user) throw ApiError.notFound('Account not found');
+  // Checked before the code, so a wrong password cannot be used to burn
+  // someone else's attempts.
+  await requireRecentAuth(user, { password: input.password, googleIdToken: input.googleIdToken });
 
   if (
     !user.pendingEmail ||
@@ -237,6 +315,9 @@ export async function confirmEmailCode(input: {
   }
 
   const target = user.pendingEmail;
+  // Captured before the overwrite: the notice below goes to the address the
+  // account is leaving, which is the owner's last line of defence.
+  const previousEmail = user.email;
   const changed = target !== user.email;
   if (changed && (await User.exists({ email: target, _id: { $ne: user._id } }))) {
     throw ApiError.conflict('That email address is already in use.');
@@ -252,7 +333,19 @@ export async function confirmEmailCode(input: {
   await user.save();
   await store.del(EMAIL_CODE_ATTEMPT_KEY(userId));
 
-  if (changed) await tokenService.revokeAllSessions(user._id);
+  if (changed) {
+    await tokenService.revokeEverySession(user._id);
+    user.tokenVersion = (user.tokenVersion ?? 0) + 1;
+    // The old inbox is the only place the real owner still controls if the
+    // change was not theirs, so it is told even though it is no longer the
+    // account address. Never blocks the change: started inside a promise so
+    // that even a synchronous throw lands in the catch, not in this request.
+    if (previousEmail) {
+      void Promise.resolve()
+        .then(() => emailService.sendEmailChangedNotice(previousEmail, target))
+        .catch(() => undefined);
+    }
+  }
   return { ...(await buildAuthResult(user, context)), changed };
 }
 
@@ -405,7 +498,20 @@ export async function loginWithGoogle(input: {
       if (!user.emailVerified && user.passwordHash) {
         user.passwordHash = undefined;
         user.authProviders = user.authProviders.filter((provider) => provider !== 'password');
-        await tokenService.revokeAllSessions(user._id);
+        // The same attacker may have left a change-email request pending on
+        // the account. Leaving it armed would let them move the address to
+        // one they control the moment the real owner takes over.
+        user.pendingEmail = undefined;
+        user.emailCodeHash = undefined;
+        user.emailCodeExpiresAt = undefined;
+        user.passwordResetOtpHash = undefined;
+        user.passwordResetOtpExpiresAt = undefined;
+        user.passwordResetTokenHash = undefined;
+        user.passwordResetTokenExpiresAt = undefined;
+        await user.save();
+        await tokenService.revokeEverySession(user._id);
+        // Re-read so the pair issued below carries the bumped version.
+        user.tokenVersion = (user.tokenVersion ?? 0) + 1;
       }
       // Existing password (or OTP) account — attach the Google credential.
       // Google has verified this exact address (email_verified is required).
@@ -628,7 +734,8 @@ export async function resetPassword(input: {
   user.emailVerified = true;
   await user.save();
 
-  await tokenService.revokeAllSessions(user._id);
+  await tokenService.revokeEverySession(user._id);
+  user.tokenVersion = (user.tokenVersion ?? 0) + 1;
 }
 
 async function buildAuthResult(user: IUser, context: LoginContext): Promise<AuthResult> {

@@ -28,10 +28,20 @@ export const authenticate = asyncHandler(async (req: Request, _res: Response, ne
   const payload = verifyAccessToken(token);
 
   const user = await User.findById(payload.sub).select(
-    '_id phone accountType wholesaleStatus isActive',
+    '_id phone accountType wholesaleStatus isActive tokenVersion deletedAt',
   );
-  if (!user) {
+  if (!user || user.deletedAt) {
     throw ApiError.unauthorized('Account not found', 'ACCOUNT_NOT_FOUND');
+  }
+  // Minted before the account last signed everyone out (password reset, email
+  // change, role change, deactivation, pre-hijack guard). Refusing here is what
+  // makes those events immediate instead of waiting out JWT_ACCESS_TTL.
+  //
+  // Checked before isActive on purpose: deactivation bumps the version, so a
+  // deactivated user gets this 401 — which the app acts on by signing out —
+  // rather than a 403 it can only display.
+  if ((payload.tv ?? 0) !== (user.tokenVersion ?? 0)) {
+    throw ApiError.unauthorized('Session ended, please sign in again', 'TOKEN_REVOKED');
   }
   if (!user.isActive) {
     throw ApiError.forbidden('This account has been deactivated');
@@ -63,9 +73,9 @@ export const optionalAuthenticate = asyncHandler(
     try {
       const payload = verifyAccessToken(token);
       const user = await User.findById(payload.sub).select(
-        '_id phone accountType wholesaleStatus isActive',
+        '_id phone accountType wholesaleStatus isActive tokenVersion deletedAt',
       );
-      if (user?.isActive) {
+      if (user?.isActive && !user.deletedAt && (payload.tv ?? 0) === (user.tokenVersion ?? 0)) {
         req.user = {
           id: user._id.toString(),
           phone: user.phone,

@@ -103,6 +103,48 @@ describe('API client: refresh-on-401', () => {
     expect(getRefreshToken()).toBeNull();
   });
 
+  it('TOKEN_REVOKED (password reset, role change, deactivation elsewhere) signs the app out when the refresh token died too', async () => {
+    await saveTokens('revoked-access-token', 'revoked-refresh-token');
+    const sessionExpiredHandler = jest.fn();
+    setSessionExpiredHandler(sessionExpiredHandler);
+
+    apiMock.onGet('/protected').reply(401, {
+      success: false,
+      error: { code: 'TOKEN_REVOKED', message: 'Session ended, please sign in again' },
+    });
+    rawAxiosMock.onPost(`${API_BASE_URL}/auth/refresh`).reply(401, {
+      success: false,
+      error: { code: 'REFRESH_TOKEN_INVALID', message: 'Session expired, please sign in again' },
+    });
+
+    await expect(api.get('/protected')).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });
+    expect(sessionExpiredHandler).toHaveBeenCalledTimes(1);
+    expect(getAccessToken()).toBeNull();
+  });
+
+  it('TOKEN_REVOKED carries on when this device already holds a newer pair', async () => {
+    await saveTokens('stale-access-token', 'fresh-refresh-token');
+
+    apiMock.onGet('/protected').reply((config) =>
+      authHeaderOf(config) === 'Bearer current-access-token'
+        ? [200, { success: true, data: { ok: true } }]
+        : [401, { success: false, error: { code: 'TOKEN_REVOKED', message: 'Session ended' } }],
+    );
+    rawAxiosMock.onPost(`${API_BASE_URL}/auth/refresh`).reply(200, {
+      success: true,
+      data: {
+        accessToken: 'current-access-token',
+        refreshToken: 'next-refresh-token',
+        user: {},
+        accessTokenExpiresIn: 1800,
+        refreshTokenExpiresAt: new Date().toISOString(),
+      },
+    });
+
+    await expect(api.get('/protected')).resolves.toMatchObject({ status: 200 });
+    expect(getAccessToken()).toBe('current-access-token');
+  });
+
   it('a 403 (wrong role, not an expired token) is surfaced as-is and does not trigger a refresh or a session clear', async () => {
     await saveTokens('a-valid-access-token', 'a-valid-refresh-token');
     const sessionExpiredHandler = jest.fn();

@@ -12,14 +12,21 @@ import {
   Screen,
   SectionLabel,
 } from '../../components/ui';
-import { authApi } from '../../api/endpoints';
+import { authApi, type ReauthProof } from '../../api/endpoints';
 import { ApiError } from '../../api/client';
+import {
+  GoogleSignInError,
+  googleErrorMessage,
+  signInWithGoogle,
+  signOutGoogle,
+} from '../../services/googleAuth';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
 import { confirmEmailCode, updateProfile } from '../../store/slices/authSlice';
 import { colors, spacing, typography, wholesaleStatusStyle } from '../../theme';
 
 type EmailStep =
   | { step: 'idle' }
+  | { step: 'verify' }
   | { step: 'enter' }
   | { step: 'code'; target: string; purpose: 'verify' | 'change' };
 
@@ -29,6 +36,10 @@ type EmailStep =
  * The email is a sign-in credential, so it is never typed straight in: a new
  * address (or the current one, to verify it) gets a 6-digit code, and only
  * that code applies it.
+ *
+ * Both steps also ask the owner to prove it is them — the password, or a
+ * fresh Google confirmation for a Google-only account. A signed-in phone left
+ * unlocked, or a stolen session, is not enough to move the address.
  */
 export function ProfileScreen() {
   const navigation = useNavigation();
@@ -44,6 +55,9 @@ export function ProfileScreen() {
   const [emailBusy, setEmailBusy] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [emailNotice, setEmailNotice] = useState<string | null>(null);
+  /** Held only for the length of one email flow, then cleared. */
+  const [password, setPassword] = useState('');
+  const hasPassword = user?.authProviders.includes('password') ?? false;
 
   const handleSave = async () => {
     setSaving(true);
@@ -52,16 +66,44 @@ export function ProfileScreen() {
     navigation.goBack();
   };
 
+  /**
+   * The credential the server wants for this account. A Google-only account
+   * gets the account picker every time: clearing the cached Google account
+   * first is what guarantees a freshly minted token, since the server refuses
+   * one older than five minutes. Null when the customer backs out.
+   */
+  const proveOwner = async (): Promise<ReauthProof | null> => {
+    if (hasPassword) return { password };
+    await signOutGoogle();
+    const googleIdToken = await signInWithGoogle();
+    return googleIdToken ? { googleIdToken } : null;
+  };
+
+  const endFlow = () => {
+    setEmailFlow({ step: 'idle' });
+    setNewEmail('');
+    setCode('');
+    setPassword('');
+  };
+
   const sendCode = async (target: string) => {
     setEmailError(null);
     setEmailNotice(null);
     setEmailBusy(true);
     try {
-      const result = await authApi.requestEmailCode(target);
+      const proof = await proveOwner();
+      if (!proof) return;
+      const result = await authApi.requestEmailCode(target, proof);
       setCode('');
       setEmailFlow({ step: 'code', target: result.email, purpose: result.purpose });
     } catch (caught) {
-      setEmailError(caught instanceof ApiError ? caught.message : 'Could not send the code.');
+      setEmailError(
+        caught instanceof GoogleSignInError
+          ? googleErrorMessage(caught)
+          : caught instanceof ApiError
+            ? caught.message
+            : 'Could not send the code.',
+      );
     } finally {
       setEmailBusy(false);
     }
@@ -70,21 +112,47 @@ export function ProfileScreen() {
   const confirm = async () => {
     setEmailError(null);
     setEmailBusy(true);
-    const result = await dispatch(confirmEmailCode({ otp: code.trim() }));
+    let proof: ReauthProof | null;
+    try {
+      proof = await proveOwner();
+    } catch (caught) {
+      setEmailBusy(false);
+      setEmailError(googleErrorMessage(caught));
+      return;
+    }
+    if (!proof) {
+      setEmailBusy(false);
+      return;
+    }
+    const result = await dispatch(confirmEmailCode({ otp: code.trim(), ...proof }));
     setEmailBusy(false);
     if (confirmEmailCode.fulfilled.match(result)) {
       setEmailNotice(
         emailFlow.step === 'code' && emailFlow.purpose === 'change'
-          ? 'Email changed. Other devices have been signed out.'
+          ? 'Email changed. You have been signed out on every other device.'
           : 'Email verified.',
       );
-      setEmailFlow({ step: 'idle' });
-      setNewEmail('');
-      setCode('');
+      endFlow();
     } else {
       setEmailError(result.payload ?? 'That code did not work.');
     }
   };
+
+  /** The password field, or a note that Google will ask — whichever applies. */
+  const ownerProofField = hasPassword ? (
+    <Input
+      label="Current password"
+      value={password}
+      onChangeText={setPassword}
+      secureTextEntry
+      autoCapitalize="none"
+      textContentType="password"
+      hint="To keep your account safe, confirm it's you."
+    />
+  ) : (
+    <Text style={styles.hint}>You'll be asked to confirm with Google.</Text>
+  );
+  const proofReady = !hasPassword || password.length > 0;
 
   if (!user) return <Screen />;
 
@@ -137,8 +205,11 @@ export function ProfileScreen() {
                 <Button
                   label="Verify email"
                   variant="secondary"
-                  onPress={() => void sendCode(user.email as string)}
-                  loading={emailBusy}
+                  onPress={() => {
+                    setEmailError(null);
+                    setEmailNotice(null);
+                    setEmailFlow({ step: 'verify' });
+                  }}
                 />
               ) : null}
               <Button
@@ -165,13 +236,28 @@ export function ProfileScreen() {
                 autoComplete="email"
                 hint="We'll send a 6-digit code to this address. Your email changes only after you enter it."
               />
+              {ownerProofField}
               <Button
                 label="Send code"
                 onPress={() => void sendCode(newEmail.trim().toLowerCase())}
                 loading={emailBusy}
-                disabled={!newEmailValid}
+                disabled={!newEmailValid || !proofReady}
               />
-              <Button label="Cancel" variant="ghost" onPress={() => setEmailFlow({ step: 'idle' })} />
+              <Button label="Cancel" variant="ghost" onPress={endFlow} />
+            </Group>
+          ) : null}
+
+          {emailFlow.step === 'verify' && user.email ? (
+            <Group padded>
+              <Text style={styles.stepLead}>We'll send a 6-digit code to {user.email}.</Text>
+              {ownerProofField}
+              <Button
+                label="Send code"
+                onPress={() => void sendCode(user.email as string)}
+                loading={emailBusy}
+                disabled={!proofReady}
+              />
+              <Button label="Cancel" variant="ghost" onPress={endFlow} />
             </Group>
           ) : null}
 
@@ -189,13 +275,16 @@ export function ProfileScreen() {
                 label={emailFlow.purpose === 'change' ? 'Change email' : 'Verify email'}
                 onPress={() => void confirm()}
                 loading={emailBusy}
-                disabled={code.length !== 6}
+                disabled={code.length !== 6 || !proofReady}
               />
+              {hasPassword && !password ? ownerProofField : null}
               <Button
                 label="Send a new code"
                 variant="ghost"
                 onPress={() => void sendCode(emailFlow.target)}
+                disabled={!proofReady}
               />
+              <Button label="Cancel" variant="ghost" onPress={endFlow} />
             </Group>
           ) : null}
         </View>
@@ -230,4 +319,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xs,
   },
   success: { color: colors.success },
+  stepLead: { ...typography.callout, color: colors.textMuted, marginBottom: spacing.md },
 });

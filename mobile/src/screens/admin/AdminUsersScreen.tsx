@@ -18,11 +18,12 @@ import {
   LoadingView,
   NavBar,
   Screen,
+  SectionLabel,
   StatusText,
 } from '../../components/ui';
 import { Icon } from '../../components/Icon';
 import { PressableScale } from '../../components/motion';
-import { adminApi } from '../../api/endpoints';
+import { adminApi, type RoleChange } from '../../api/endpoints';
 import { ApiError } from '../../api/client';
 import { useAppSelector } from '../../store/hooks';
 import { colors, spacing, typography, wholesaleStatusStyle } from '../../theme';
@@ -50,6 +51,7 @@ export function AdminUsersScreen() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [changes, setChanges] = useState<RoleChange[]>([]);
 
   const load = useCallback(
     async (nextTab = tab, query = search) => {
@@ -63,6 +65,11 @@ export function AdminUsersScreen() {
           limit: 50,
         });
         setUsers(data);
+        // The trail is secondary: failing to load it must not hide the accounts.
+        adminApi
+          .roleChanges()
+          .then((rows) => setChanges(rows.slice(0, 10)))
+          .catch(() => setChanges([]));
       } catch (caught) {
         setError(caught instanceof ApiError ? caught.message : 'Could not load accounts.');
       } finally {
@@ -79,15 +86,16 @@ export function AdminUsersScreen() {
   );
 
   const changeRole = (user: User) => {
-    const options: Array<{ label: string; value: 'retail' | 'staff' | 'admin' }> = [
-      { label: 'Retail customer', value: 'retail' },
-      { label: 'Staff', value: 'staff' },
-      { label: 'Admin', value: 'admin' },
-    ].filter((option) => option.value !== user.accountType) as never;
+    // No "Admin" choice: admin comes only from the store's ADMIN_EMAILS list,
+    // and the server refuses it here.
+    const options: Array<{ label: string; value: 'retail' | 'staff' }> = [
+      { label: 'Retail customer', value: 'retail' as const },
+      { label: 'Staff', value: 'staff' as const },
+    ].filter((option) => option.value !== user.accountType);
 
     Alert.alert(
       'Change role',
-      `${user.name ?? user.phone} is currently ${user.accountType}. Changing the role signs them out of every device.`,
+      `${user.name ?? user.email ?? user.phone} is currently ${user.accountType}. Changing the role signs them out of every device. Admin access is granted only through the store's admin email list.`,
       [
         { text: 'Cancel', style: 'cancel' },
         ...options.map((option) => ({
@@ -246,6 +254,37 @@ export function AdminUsersScreen() {
               })}
             </Group>
           )}
+
+          {/* Who promoted or deactivated whom — the one change nobody notices
+              afterwards, because the list above only shows the result. */}
+          {changes.length > 0 ? (
+            <View style={styles.block}>
+              <SectionLabel>Recent role changes</SectionLabel>
+              <Group>
+                {changes.map((change) => (
+                  <View key={change.id} style={styles.changeRow}>
+                    <Text style={styles.changeText}>
+                      <Text style={styles.changeStrong}>{change.targetEmail ?? 'An account'}</Text>
+                      {change.action === 'role'
+                        ? ` ${change.from} → ${change.to}`
+                        : change.to === 'false'
+                          ? ' deactivated'
+                          : ' reactivated'}
+                    </Text>
+                    <Text style={styles.meta}>
+                      by {change.actorEmail ?? 'an admin'} ·{' '}
+                      {new Date(change.at).toLocaleString('en-IN', {
+                        day: 'numeric',
+                        month: 'short',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                      })}
+                    </Text>
+                  </View>
+                ))}
+              </Group>
+            </View>
+          ) : null}
         </ScrollView>
       )}
     </Screen>
@@ -283,4 +322,9 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', gap: spacing.xl, marginTop: spacing.md },
   action: { ...typography.calloutStrong, color: colors.primary },
   actionQuiet: { color: colors.textFaint },
+
+  block: { marginTop: spacing.xl },
+  changeRow: { paddingHorizontal: spacing.lg + 2, paddingVertical: spacing.md + 2 },
+  changeText: { ...typography.callout, color: colors.textMuted },
+  changeStrong: { ...typography.calloutStrong, color: colors.text },
 });

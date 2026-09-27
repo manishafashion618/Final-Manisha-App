@@ -8,15 +8,19 @@ interface CodeEmail {
 }
 
 const mockSendCode = jest.fn(async (_input: CodeEmail) => ({ delivered: true }));
+const mockSendNotice = jest.fn(async (_previous: string, _next: string) => ({ delivered: true }));
 jest.mock('../services/email.service', () => ({
   sendPasswordResetEmail: (input: CodeEmail) => mockSendCode({ ...input, purpose: 'reset' }),
   sendEmailVerificationCode: (input: CodeEmail) => mockSendCode(input),
+  sendEmailChangedNotice: (previousEmail: string, newEmail: string) =>
+    mockSendNotice(previousEmail, newEmail),
 }));
 
 beforeAll(connectTestDb);
 afterAll(disconnectTestDb);
 afterEach(async () => {
   mockSendCode.mockClear();
+  mockSendNotice.mockClear();
   await clearTestDb();
 });
 
@@ -49,12 +53,12 @@ async function proveEmail(accessToken: string, email: string) {
   const requested = await request
     .post(api('/auth/email/request-code'))
     .set('Authorization', `Bearer ${accessToken}`)
-    .send({ email });
+    .send({ password: PASSWORD, email });
   expect(requested.status).toBe(200);
   return request
     .post(api('/auth/email/confirm'))
     .set('Authorization', `Bearer ${accessToken}`)
-    .send({ otp: lastCodeFor(email.toLowerCase()) });
+    .send({ password: PASSWORD, otp: lastCodeFor(email.toLowerCase()) });
 }
 
 describe('ADMIN_EMAILS grants admin only to a verified address', () => {
@@ -175,7 +179,7 @@ describe('F1: a customer cannot make themselves admin by changing their email', 
     await request
       .post(api('/auth/email/request-code'))
       .set('Authorization', `Bearer ${mallory.accessToken}`)
-      .send({ email: 'owner@example.com' })
+      .send({ password: PASSWORD, email: 'owner@example.com' })
       .expect(200);
 
     const again = await login('mallory@example.com');
@@ -188,13 +192,13 @@ describe('F1: a customer cannot make themselves admin by changing their email', 
     await request
       .post(api('/auth/email/request-code'))
       .set('Authorization', `Bearer ${mallory.accessToken}`)
-      .send({ email: 'owner@example.com' });
+      .send({ password: PASSWORD, email: 'owner@example.com' });
 
     const wrong = lastCodeFor('owner@example.com') === '123456' ? '654321' : '123456';
     const res = await request
       .post(api('/auth/email/confirm'))
       .set('Authorization', `Bearer ${mallory.accessToken}`)
-      .send({ otp: wrong });
+      .send({ password: PASSWORD, otp: wrong });
 
     // 400, not 401: the caller is signed in, only the code is wrong.
     expect(res.status).toBe(400);
@@ -210,7 +214,7 @@ describe('verified email change', () => {
     const res = await request
       .post(api('/auth/email/request-code'))
       .set('Authorization', `Bearer ${mallory.accessToken}`)
-      .send({ email: 'TAKEN@Example.com' });
+      .send({ password: PASSWORD, email: 'TAKEN@Example.com' });
 
     expect(res.status).toBe(409);
     expect(mockSendCode).not.toHaveBeenCalled();
@@ -244,14 +248,14 @@ describe('verified email change', () => {
     await request
       .post(api('/auth/email/request-code'))
       .set('Authorization', `Bearer ${account.accessToken}`)
-      .send({ email: 'contested@example.com' });
+      .send({ password: PASSWORD, email: 'contested@example.com' });
 
     await register('contested@example.com');
 
     const res = await request
       .post(api('/auth/email/confirm'))
       .set('Authorization', `Bearer ${account.accessToken}`)
-      .send({ otp: lastCodeFor('contested@example.com') });
+      .send({ password: PASSWORD, otp: lastCodeFor('contested@example.com') });
 
     expect(res.status).toBe(409);
   });
@@ -261,7 +265,7 @@ describe('verified email change', () => {
     await request
       .post(api('/auth/email/request-code'))
       .set('Authorization', `Bearer ${account.accessToken}`)
-      .send({ email: 'person@example.com' });
+      .send({ password: PASSWORD, email: 'person@example.com' });
     const code = lastCodeFor('person@example.com');
 
     let last;
@@ -269,14 +273,14 @@ describe('verified email change', () => {
       last = await request
         .post(api('/auth/email/confirm'))
         .set('Authorization', `Bearer ${account.accessToken}`)
-        .send({ otp: code === '000000' ? '111111' : '000000' });
+        .send({ password: PASSWORD, otp: code === '000000' ? '111111' : '000000' });
     }
     expect(last?.status).toBe(429);
 
     const afterLock = await request
       .post(api('/auth/email/confirm'))
       .set('Authorization', `Bearer ${account.accessToken}`)
-      .send({ otp: code });
+      .send({ password: PASSWORD, otp: code });
     expect(afterLock.status).toBe(429);
   });
 
@@ -287,7 +291,7 @@ describe('verified email change', () => {
     const again = await request
       .post(api('/auth/email/request-code'))
       .set('Authorization', `Bearer ${account.accessToken}`)
-      .send({ email: 'person@example.com' });
+      .send({ password: PASSWORD, email: 'person@example.com' });
     expect(again.status).toBe(409);
   });
 });

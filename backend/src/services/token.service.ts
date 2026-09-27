@@ -23,11 +23,14 @@ function hashRefreshToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
-export function signAccessToken(user: Pick<IUser, '_id' | 'accountType' | 'wholesaleStatus'>): string {
+export function signAccessToken(
+  user: Pick<IUser, '_id' | 'accountType' | 'wholesaleStatus'> & { tokenVersion?: number },
+): string {
   const payload: JwtAccessPayload = {
     sub: user._id.toString(),
     accountType: user.accountType,
     wholesaleStatus: user.wholesaleStatus,
+    tv: user.tokenVersion ?? 0,
     tokenType: 'access',
   };
   return jwt.sign(payload, env.JWT_ACCESS_SECRET, {
@@ -72,6 +75,7 @@ export async function issueTokens(
   const refreshPayload: JwtRefreshPayload = {
     sub: user._id.toString(),
     jti,
+    tv: user.tokenVersion ?? 0,
     tokenType: 'refresh',
   };
   // The JWT wrapper carries the jti; the random secret half is what gets hashed
@@ -156,10 +160,19 @@ export async function rotateRefreshToken(
 
   const { User } = await import('../models/user.model');
   const user = await User.findById(stored.userId);
-  if (!user || !user.isActive) {
+  if (!user || !user.isActive || user.deletedAt) {
     // A deactivated account loses every session, not just this one.
     if (user) await revokeAllSessions(user._id);
     throw ApiError.unauthorized('Account is no longer active', 'ACCOUNT_INACTIVE');
+  }
+
+  // Minted before the last "sign everyone out" event: refuse rather than hand
+  // out a fresh pair, which would resurrect a session the bump killed.
+  // Only this token is revoked: a stale device must not be able to sign out
+  // the session that replaced it.
+  if ((payload.tv ?? 0) !== (user.tokenVersion ?? 0)) {
+    await RefreshToken.updateOne({ _id: stored._id }, { $set: { revokedAt: new Date() } });
+    throw ApiError.unauthorized('Session expired, please sign in again', 'REFRESH_TOKEN_INVALID');
   }
 
   // Claimed atomically: of two requests rotating the same token at once, one
@@ -217,4 +230,21 @@ function parseTtlSeconds(ttl: string): number {
   const unit = match[2];
   const multipliers: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
   return value * (multipliers[unit] ?? 60);
+}
+
+/**
+ * Ends every session the account has, everywhere, at once.
+ *
+ * Revoking refresh tokens alone left already-issued ACCESS tokens working
+ * until their own expiry. Bumping the version makes `authenticate` reject
+ * them on the very next request, so "sign me out everywhere" is immediate
+ * rather than eventually.
+ *
+ * Call this for: password reset, email change, role change, deactivation,
+ * the Google pre-hijack guard, logout-all and account deletion.
+ */
+export async function revokeEverySession(userId: Types.ObjectId): Promise<void> {
+  const { User } = await import('../models/user.model');
+  await User.updateOne({ _id: userId }, { $inc: { tokenVersion: 1 } });
+  await revokeAllSessions(userId);
 }

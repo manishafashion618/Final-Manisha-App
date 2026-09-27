@@ -18,7 +18,14 @@ export const userListQuery = paginationQuery.extend({
 
 export const setRoleSchema = z.object({
   // Wholesale is granted through the approval flow, not by direct assignment.
-  accountType: z.enum(['retail', 'staff', 'admin']),
+  //
+  // `admin` is deliberately NOT assignable. Admin comes from a verified
+  // ADMIN_EMAILS address and nothing else, so the set of administrators is
+  // governed by an environment variable the deployer controls rather than by
+  // whoever currently holds an admin session. Accepting it here left a
+  // window: the grant stood until syncAdminRole demoted the account at its
+  // next sign-in or refresh.
+  accountType: z.enum(['retail', 'staff']),
 });
 
 export const setActiveSchema = z.object({

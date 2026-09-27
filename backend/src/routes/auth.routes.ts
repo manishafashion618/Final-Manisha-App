@@ -31,6 +31,8 @@ const router = Router();
 // ── Public (PRD 8.7) ──
 router.post('/refresh', validate({ body: refreshSchema }), authLimiter, authController.refresh);
 router.post('/logout', validate({ body: logoutSchema }), authController.logout);
+// Every device at once, including access tokens already handed out.
+router.post('/logout-all', authenticate, authController.logoutAll);
 
 // ── Email + password (PRD 4.1 extension) ──
 router.post('/register', validate({ body: registerSchema }), authLimiter, authController.register);

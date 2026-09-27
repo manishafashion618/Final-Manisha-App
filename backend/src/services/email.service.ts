@@ -124,6 +124,74 @@ async function sendCodeEmail(input: {
   }
 }
 
+/**
+ * Tells the address an account is LEAVING that its email was changed.
+ *
+ * The new address gets the code; this goes to the old one, which is the only
+ * inbox the real owner still controls if the change was not theirs. Sent
+ * after the change is committed and never allowed to block it — a bounced
+ * notice must not undo a change the user legitimately made.
+ */
+export async function sendEmailChangedNotice(
+  previousEmail: string,
+  newEmail: string,
+): Promise<SendResult> {
+  const subject = `Your ${BRAND} email address was changed`;
+  // The new address is shown partly masked: if this notice reaches the wrong
+  // person, it should not hand them the whole address to go after.
+  const masked = maskEmail(newEmail);
+  const lines = [
+    BRAND,
+    '',
+    `The email address on your account was changed to ${masked}.`,
+    '',
+    'You have been signed out on every device.',
+    '',
+    "If this was you, there is nothing to do. If it was NOT you, contact us immediately — whoever made the change now receives mail for this account.",
+  ];
+
+  if (!transporter) {
+    logger.warn(`[email:dev] email-changed notice for ${previousEmail}`);
+    return { delivered: false };
+  }
+
+  try {
+    await transporter.sendMail({
+      from: `${BRAND} <${env.SMTP_USER}>`,
+      to: previousEmail,
+      subject,
+      text: lines.join('\n'),
+      html: noticeHtml(subject, lines),
+    });
+    return { delivered: true };
+  } catch (error) {
+    logger.error('Email (change-notice) failed to send', error);
+    return { delivered: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** `someone@example.com` → `so•••@example.com`. */
+function maskEmail(email: string): string {
+  const [local, domain] = email.split('@');
+  if (!domain) return '•••';
+  const head = local.slice(0, 2);
+  return `${head}${'•'.repeat(Math.max(3, local.length - 2))}@${domain}`;
+}
+
+function noticeHtml(heading: string, lines: string[]): string {
+  const body = lines
+    .slice(2)
+    .filter(Boolean)
+    .map((line) => `<p style="margin:0 0 14px;color:#4A4A4A;line-height:1.6">${line}</p>`)
+    .join('');
+  return `<!doctype html><html><body style="margin:0;background:#FAFAFA;padding:32px 16px;font-family:-apple-system,Segoe UI,Roboto,sans-serif">
+  <div style="max-width:520px;margin:0 auto;background:#FFFFFF;border-radius:16px;padding:32px">
+    <p style="margin:0 0 4px;color:${ACCENT};font-weight:700;letter-spacing:.04em">${BRAND}</p>
+    <h1 style="margin:0 0 18px;font-size:20px;color:#1A1A1A">${heading}</h1>
+    ${body}
+  </div></body></html>`;
+}
+
 function plainTextBody(copy: (typeof COPY)[CodePurpose], code: string, minutes: number): string {
   return [
     `${BRAND}`,

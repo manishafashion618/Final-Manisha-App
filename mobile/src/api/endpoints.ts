@@ -70,6 +70,23 @@ export const configApi = {
 
 /* ── Auth (PRD 4.1 / 8.7) ───────────────────────────────────────────────── */
 
+/**
+ * Proof the owner is present, for actions that can take an account away:
+ * the password for a password account, a freshly minted Google ID token for
+ * a Google-only one (the server refuses one older than five minutes).
+ */
+export type ReauthProof = { password?: string; googleIdToken?: string };
+
+export interface RoleChange {
+  id: string;
+  actorEmail?: string;
+  targetEmail?: string;
+  action: 'role' | 'active';
+  from: string;
+  to: string;
+  at: string;
+}
+
 export const authApi = {
   register: (input: {
     email: string;
@@ -113,15 +130,18 @@ export const authApi = {
    * Emails a 6-digit code to `email`: the current address to verify it, or a
    * new one to change to it. Nothing changes until confirmEmailCode.
    */
-  requestEmailCode: (email: string) =>
+  requestEmailCode: (email: string, proof: ReauthProof) =>
     post<{ email: string; purpose: 'verify' | 'change'; expiresInMinutes: number }>(
       '/auth/email/request-code',
-      { email },
+      { email, ...proof },
     ),
 
   /** Applies the verified email and returns a fresh session (others are revoked on a change). */
-  confirmEmailCode: (input: { otp: string; deviceId?: string }) =>
+  confirmEmailCode: (input: { otp: string; deviceId?: string } & ReauthProof) =>
     post<AuthResult & { changed: boolean }>('/auth/email/confirm', input),
+
+  /** Signs this account out on every device at once. */
+  logoutAll: () => post<{ message: string }>('/auth/logout-all'),
 
   applyForWholesale: (input: { businessName?: string; gstNumber?: string; shopProofUrl?: string }) =>
     post<User>('/auth/wholesale/apply', input),
@@ -321,11 +341,15 @@ export const adminApi = {
   listUsers: (params: { accountType?: string; search?: string; page?: number; limit?: number }) =>
     getPaged<User[]>('/admin/users', { params }),
 
-  setRole: (userId: string, accountType: 'retail' | 'staff' | 'admin') =>
+  /** Retail or staff only — admin comes from the ADMIN_EMAILS list, never from here. */
+  setRole: (userId: string, accountType: 'retail' | 'staff') =>
     patch<User>(`/admin/users/${userId}/role`, { accountType }),
 
   setActive: (userId: string, isActive: boolean) =>
     patch<User>(`/admin/users/${userId}/active`, { isActive }),
+
+  /** Who changed whose role or activation, newest first. */
+  roleChanges: () => get<RoleChange[]>('/admin/role-changes'),
 
   /* ── COD settings, per state (PRD 4.4 / 6) ───────────────────────────── */
 

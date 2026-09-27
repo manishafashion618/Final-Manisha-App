@@ -93,6 +93,13 @@ router.patch(
   adminController.setRole,
 );
 
+// Who changed whose role or activation, and when (newest first).
+router.get(
+  '/role-changes',
+  requirePermission(PERMISSIONS.USER_MANAGE),
+  adminController.roleChanges,
+);
+
 router.patch(
   '/users/:userId/active',
   validate({ params: userIdParam, body: setActiveSchema }),

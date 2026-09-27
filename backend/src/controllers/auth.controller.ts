@@ -21,6 +21,11 @@ export const logout = asyncHandler(async (req: Request, res: Response) => {
   res.success({ message: 'Signed out.' });
 });
 
+export const logoutAll = asyncHandler(async (req: Request, res: Response) => {
+  await authService.logoutEverywhere(req.user!.id);
+  res.success({ message: 'Signed out on every device.' });
+});
+
 export const register = asyncHandler(async (req: Request, res: Response) => {
   const result = await authService.registerWithPassword({
     email: req.body.email,
@@ -75,7 +80,12 @@ export const resetPassword = asyncHandler(async (req: Request, res: Response) =>
 });
 
 export const requestEmailCode = asyncHandler(async (req: Request, res: Response) => {
-  res.success(await authService.requestEmailCode(req.user!.id, req.body.email));
+  res.success(
+    await authService.requestEmailCode(req.user!.id, req.body.email, {
+      password: req.body.password,
+      googleIdToken: req.body.googleIdToken,
+    }),
+  );
 });
 
 export const confirmEmailCode = asyncHandler(async (req: Request, res: Response) => {
@@ -83,6 +93,8 @@ export const confirmEmailCode = asyncHandler(async (req: Request, res: Response)
     await authService.confirmEmailCode({
       userId: req.user!.id,
       otp: req.body.otp,
+      password: req.body.password,
+      googleIdToken: req.body.googleIdToken,
       context: loginContext(req),
     }),
   );

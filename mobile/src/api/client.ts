@@ -224,9 +224,16 @@ api.interceptors.response.use(
       }
     }
 
+    // TOKEN_REVOKED is the server ending every session at once (password
+    // reset, email or role change, deactivation). It goes through the same
+    // single refresh: a device that already holds a newer pair carries on,
+    // and one whose refresh token died with it is signed out below.
     const isExpiredToken =
       status === 401 &&
-      (body?.code === 'TOKEN_EXPIRED' || body?.code === 'INVALID_TOKEN' || body?.code === 'NO_TOKEN');
+      (body?.code === 'TOKEN_EXPIRED' ||
+        body?.code === 'TOKEN_REVOKED' ||
+        body?.code === 'INVALID_TOKEN' ||
+        body?.code === 'NO_TOKEN');
 
     if (isExpiredToken && original && !original._retried) {
       original._retried = true;
