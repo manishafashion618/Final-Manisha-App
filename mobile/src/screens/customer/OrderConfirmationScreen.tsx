@@ -90,9 +90,10 @@ export function OrderConfirmationScreen() {
             <Icon name="check" size={34} color={colors.textInverse} strokeWidth={2.6} />
           </View>
           <Text style={styles.title}>Order placed</Text>
+          {/* No SMS or email confirmation is sent and there are no push
+              notifications, so the screen promises neither. */}
           <Text style={styles.subtitle}>
-            Thank you. We've sent a confirmation to {order.shippingAddress.phone} and will notify
-            you at every step.
+            Thank you. Your order is confirmed. You can track it under Orders.
           </Text>
         </View>
 
