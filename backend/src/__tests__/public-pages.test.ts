@@ -52,6 +52,23 @@ describe('GET /privacy-policy', () => {
     expect(text).not.toContain('order or account notices');
     expect(text).not.toContain('Profile → Account');
   });
+
+  it('states retention periods and everything deletion removes', async () => {
+    const text = await readable('/privacy-policy');
+
+    expect(text).toContain('kept for up to 90 days');
+    expect(text).toContain('kept for 8 years for GST and income-tax records');
+    // The same list as account.service.ts eraseAccount() and the deletion page.
+    for (const removed of [
+      'email, name, profile photo, password, Google sign-in link, phone number and saved addresses',
+      'wholesale business details (business name and GSTIN)',
+      'your wishlist and cart',
+      'all your signed-in sessions',
+    ]) {
+      expect(text).toContain(removed);
+    }
+    expect(text).not.toContain('kept for a short time');
+  });
 });
 
 describe('GET /terms', () => {

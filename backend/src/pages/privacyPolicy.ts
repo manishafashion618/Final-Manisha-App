@@ -30,7 +30,7 @@ explains what we collect, why, and your choices.</p>
   <li><strong>Reviews</strong> you post, which are shown publicly with your name.</li>
   <li><strong>Sign-in records:</strong> a device identifier stored with each session, used to keep
   your account secure.</li>
-  <li><strong>Security logs:</strong> your IP address and app version, kept for a short time to
+  <li><strong>Security logs:</strong> your IP address and app version, kept for up to 90 days to
   protect the service from abuse.</li>
   <li><strong>Staff only:</strong> product photos uploaded from the device's photo library.</li>
 </ul>
@@ -58,10 +58,12 @@ a password reset, email change or sign-out from all devices.</p>
 <h2>6. Retention and deletion</h2>
 <p>You can delete your account in the app (Account → Delete account) or at
 <a href="/account-deletion">https://final-manisha-app.onrender.com/account-deletion</a>. Deleting
-removes your account details; reviews you wrote stay, but are shown as "Customer" instead of your
-name. For tax records, we keep past orders with your name, phone and street address removed; only
-city, state and PIN code remain. Deletion isn't available while a delivery is in progress or a
-refund is still due.</p>
+removes your account (email, name, profile photo, password, Google sign-in link, phone number and
+saved addresses), your wholesale business details (business name and GSTIN), your wishlist and
+cart, and all your signed-in sessions. Reviews you wrote stay, but are shown as "Customer" instead
+of your name. Past orders are kept for 8 years for GST and income-tax records, with your name,
+phone and street address removed; only city, state and PIN code remain. Deletion isn't available
+while a delivery is in progress or a refund is still due.</p>
 
 <h2>7. Your rights</h2>
 <p>You can access, correct or delete your personal data. Under India's Digital Personal Data
