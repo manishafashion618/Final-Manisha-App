@@ -10,7 +10,7 @@ export interface SerializedReview {
   rating: number;
   comment?: string;
   verifiedPurchase: boolean;
-  /** Display name, or a masked phone when the customer has not set one. */
+  /** The customer's name, or "Customer" when they have not set one. */
   author: string;
   /** True for the signed-in viewer's own review, so the client can offer edit. */
   mine: boolean;
@@ -25,20 +25,22 @@ export interface RatingSummary {
 }
 
 /**
- * A customer with no name still needs to be identifiable without leaking their
- * number: "Priya S." if named, otherwise "…6789".
+ * The name shown publicly on a review: the customer's own name, or "Customer".
+ *
+ * Never any part of a phone number. The last four digits used to stand in for
+ * a missing name, which put personal data on a public page and contradicted
+ * the privacy policy ("shown publicly with your name"). The phone is not even
+ * loaded for reviews any more.
  */
-function displayName(user: { name?: string; phone?: string } | null | undefined): string {
-  if (user?.name?.trim()) return user.name.trim();
-  const digits = (user?.phone ?? '').replace(/\D/g, '');
-  return digits ? `…${digits.slice(-4)}` : 'Customer';
+function displayName(user: { name?: string } | null | undefined): string {
+  return user?.name?.trim() || 'Customer';
 }
 
 function serialize(
   review: IReview & { userId?: unknown },
   viewerId?: string,
 ): SerializedReview {
-  const populated = review.userId as { _id?: Types.ObjectId; name?: string; phone?: string } | null;
+  const populated = review.userId as { _id?: Types.ObjectId; name?: string } | null;
   const authorId = populated?._id?.toString() ?? String(review.userId);
 
   return {
@@ -118,7 +120,7 @@ export async function listForProduct(
   const skip = (page - 1) * limit;
   const [items, total, summary] = await Promise.all([
     Review.find({ productId })
-      .populate('userId', 'name phone')
+      .populate('userId', 'name')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -173,7 +175,7 @@ export async function upsertReview(
     { new: true, upsert: true, setDefaultsOnInsert: true },
   );
 
-  const author = await User.findById(userId).select('name phone');
+  const author = await User.findById(userId).select('name');
   return serialize(
     Object.assign(review, { userId: author }) as IReview,
     userId,

@@ -148,6 +148,41 @@ describe('categories: create, list, rename, delete', () => {
 });
 
 describe('reviews', () => {
+  it('shows a customer with no name as "Customer" — never any part of their phone', async () => {
+    const shopper = await createTestUser();
+    await User.updateOne(
+      { _id: shopper.id },
+      { $unset: { name: 1 }, $set: { phone: '+919812345678' } },
+    );
+    const product = await createTestProduct();
+    const path = api(`/products/${product.id}/reviews`);
+
+    const posted = await request.post(path).set('Authorization', shopper.auth).send({ rating: 5 });
+    const listed = await request.get(path);
+
+    expect(posted.body.data.author).toBe('Customer');
+    expect(listed.body.data.items[0].author).toBe('Customer');
+    for (const body of [posted.body, listed.body]) {
+      const json = JSON.stringify(body);
+      expect(json).not.toContain('9812345678');
+      // The old stand-in for a missing name was the last four digits.
+      expect(json).not.toContain('…5678');
+      expect(json).not.toContain('5678"');
+    }
+  });
+
+  it('shows a named customer by their name', async () => {
+    const shopper = await createTestUser();
+    await User.updateOne({ _id: shopper.id }, { $set: { name: 'Priya S.' } });
+    const product = await createTestProduct();
+    const path = api(`/products/${product.id}/reviews`);
+
+    await request.post(path).set('Authorization', shopper.auth).send({ rating: 4 });
+    const listed = await request.get(path);
+
+    expect(listed.body.data.items[0].author).toBe('Priya S.');
+  });
+
   it('posts, updates in place, marks the author, and deletes', async () => {
     const shopper = await createTestUser();
     const product = await createTestProduct();
