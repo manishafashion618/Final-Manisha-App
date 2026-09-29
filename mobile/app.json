@@ -18,7 +18,6 @@
     },
     "android": {
       "package": "in.manishafashions.app",
-      "versionCode": 4,
       "adaptiveIcon": {
         "backgroundColor": "#FCEEF1",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -48,6 +47,7 @@
         }
       ],
       "./plugins/withDevCleartext",
+      "./plugins/withReleaseSigning",
       [
         "@react-native-google-signin/google-signin",
         {
