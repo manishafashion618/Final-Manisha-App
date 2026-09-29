@@ -14,6 +14,7 @@ import {
   setPendingAccountType,
 } from '../../store/slices/authSlice';
 import { colors, spacing, typography } from '../../theme';
+import { openLegalPage } from '../../utils/legalLinks';
 import type { RootStackParamList } from '../../navigation/types';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Login'>;
@@ -215,8 +216,26 @@ export function LoginScreen() {
         </Text>
       </PressableScale>
 
+      {/* Real links, not just words: Play requires the privacy policy to be
+          reachable from inside the app. */}
       <Text style={styles.legal}>
-        By continuing you agree to our terms of service and privacy policy.
+        By continuing you agree to our{' '}
+        <Text
+          style={styles.legalLink}
+          onPress={() => openLegalPage('terms')}
+          accessibilityRole="link"
+        >
+          terms of service
+        </Text>{' '}
+        and{' '}
+        <Text
+          style={styles.legalLink}
+          onPress={() => openLegalPage('privacy')}
+          accessibilityRole="link"
+        >
+          privacy policy
+        </Text>
+        .
       </Text>
     </Screen>
   );
@@ -256,4 +275,5 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
     marginBottom: spacing.xl,
   },
+  legalLink: { color: colors.primary, fontWeight: '500' },
 });

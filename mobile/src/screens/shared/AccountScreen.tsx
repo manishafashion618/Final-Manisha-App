@@ -21,6 +21,8 @@ import {
 import { applyForWholesale, refreshProfile, signOut } from '../../store/slices/authSlice';
 import { colors, radius, shadow, shadowAccent, spacing, typography } from '../../theme';
 import type { RootStackParamList } from '../../navigation/types';
+import { authApi } from '../../api/endpoints';
+import { openLegalPage } from '../../utils/legalLinks';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -70,6 +72,32 @@ export function AccountScreen() {
       { text: 'Stay signed in', style: 'cancel' },
       { text: 'Log out', style: 'destructive', onPress: () => void dispatch(signOut()) },
     ]);
+  };
+
+  /* Ends every session on the server first — other phones included — and
+     only then signs this device out. If the server call fails, nothing is
+     claimed: the customer is told, and stays signed in to try again. */
+  const handleSignOutEverywhere = () => {
+    Alert.alert(
+      'Sign out of all devices?',
+      'You will be signed out here and on every other phone or tablet using this account.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign out everywhere',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await authApi.logoutAll();
+            } catch {
+              Alert.alert('Could not sign out everywhere', 'Please check your connection and try again.');
+              return;
+            }
+            void dispatch(signOut());
+          },
+        },
+      ],
+    );
   };
 
   if (!user) return <Screen />;
@@ -194,12 +222,26 @@ export function AccountScreen() {
           </View>
         ) : null}
 
-        {/* Play policy: deletion is reachable from inside the app. Not offered
-            to an admin — that role comes from ADMIN_EMAILS, and the server
-            refuses to delete such an account here. */}
-        {user.accountType !== 'admin' ? (
-          <View style={styles.block}>
-            <Group>
+        {/* Play policy: the privacy policy and account deletion are reachable
+            from inside the app. Deletion is not offered to an admin — that
+            role comes from ADMIN_EMAILS, and the server refuses it here. */}
+        <View style={styles.block}>
+          <SectionLabel>Privacy & security</SectionLabel>
+          <Group>
+            <Row icon="info" label="Privacy policy" chevron onPress={() => openLegalPage('privacy')} />
+            <Row
+              icon="clipboard"
+              label="Terms of service"
+              chevron
+              onPress={() => openLegalPage('terms')}
+            />
+            <Row
+              icon="logOut"
+              label="Sign out of all devices"
+              chevron
+              onPress={handleSignOutEverywhere}
+            />
+            {user.accountType !== 'admin' ? (
               <Row
                 icon="trash"
                 label="Delete account"
@@ -207,9 +249,9 @@ export function AccountScreen() {
                 chevron
                 onPress={() => navigation.navigate('DeleteAccount')}
               />
-            </Group>
-          </View>
-        ) : null}
+            ) : null}
+          </Group>
+        </View>
 
         <PressableScale onPress={handleSignOut} style={styles.logOut} accessibilityRole="button">
           <Text style={styles.logOutLabel}>Log out</Text>

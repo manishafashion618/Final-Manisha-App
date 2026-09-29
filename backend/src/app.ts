@@ -10,6 +10,7 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { generalLimiter } from './middleware/rateLimiter';
 import { responseFormatter } from './middleware/responseFormatter';
 import routes from './routes';
+import publicRoutes from './routes/public.routes';
 import webhookRoutes from './routes/webhook.routes';
 
 /**
@@ -87,6 +88,10 @@ export function createApp(): Application {
       redirect: false,
     }),
   );
+
+  // Privacy policy and terms: public HTML, outside the API prefix (and so
+  // outside its limiter and JSON envelope), linked from the app and Play.
+  app.use(publicRoutes);
 
   // ── Webhooks: mounted before the JSON parser's normal path so the raw body
   // survives for HMAC verification (PRD 4.4). ──
