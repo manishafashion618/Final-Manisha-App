@@ -270,6 +270,19 @@ Base path `/api/v1`. All responses are `{ success, data, meta? }` or
    before the order is placed, without hard-coding a figure the PRD lists as an
    open item.
 
+## Data retention
+
+The privacy policy (`backend/src/pages/privacyPolicy.ts`) and the account-deletion
+page tell customers that past orders are kept for 8 years for GST and income-tax
+records. Nothing in the code enforces the end of that period yet:
+
+- **Rule** — past orders must be purged 8 years after the order date (`createdAt`
+  on the `orders` collection), per the privacy policy. Orders belonging to deleted
+  accounts are included: deletion anonymises them, it does not change the clock.
+- **No automated job exists.** Nothing deletes old orders today. Build a scheduled
+  purge, or run one by hand, before the first orders fall due.
+- **First orders become due in 2034** — the store's first orders date from 2026.
+
 ## Still open (PRD §6 — needs client confirmation)
 
 These are wired to be configurable rather than guessed:
