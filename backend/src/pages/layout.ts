@@ -46,7 +46,7 @@ export function page(title: string, body: string): string {
   strong { color: var(--text); }
   ul { padding-left: 20px; }
   .meta { color: var(--faint); font-size: 14px; }
-  .card {
+  .card, .deletion-form {
     background: var(--surface); border-radius: 16px; padding: 20px;
     margin: 20px 0; border: 1px solid var(--border);
   }
@@ -55,15 +55,19 @@ export function page(title: string, body: string): string {
     width: 100%; font: inherit; padding: 12px 14px; border-radius: 12px;
     border: 1px solid var(--border); background: var(--bg); color: var(--text);
   }
-  .check { display: flex; gap: 10px; align-items: flex-start; font-weight: 400; color: var(--muted); }
-  .check input { margin-top: 5px; }
+  .check, .checkbox { display: flex; gap: 10px; align-items: flex-start; font-weight: 400; color: var(--muted); }
+  .check input, .checkbox input { margin-top: 5px; }
   button {
     margin-top: 16px; width: 100%; font: inherit; font-weight: 600; padding: 14px;
     border: 0; border-radius: 999px; background: var(--primary); color: #FFF; cursor: pointer;
   }
+  /* The destructive action reads darker than an ordinary button. */
+  button.danger { background: #B3123A; }
   .notice { border-radius: 12px; padding: 12px 14px; margin: 16px 0; }
   .notice.ok { background: rgba(52,168,83,.1); color: #1E6B36; }
   .notice.warn { background: rgba(178,106,0,.1); color: var(--warning); }
+  .notice-info { background: rgba(0,0,0,.05); color: var(--text); }
+  .notice-error { background: rgba(231,27,76,.08); color: #B3123A; }
   a { color: var(--primary); }
   footer { margin-top: 48px; font-size: 14px; color: var(--faint); }
 </style>
@@ -74,7 +78,8 @@ export function page(title: string, body: string): string {
 ${body}
 <footer>
   <a href="/privacy-policy">Privacy policy</a> ·
-  <a href="/terms">Terms of service</a>
+  <a href="/terms">Terms of service</a> ·
+  <a href="/account-deletion">Delete your account</a>
 </footer>
 </main>
 </body>

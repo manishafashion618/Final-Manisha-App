@@ -82,6 +82,13 @@ describe('GET /terms', () => {
   });
 });
 
+describe('footer', () => {
+  it.each(['/privacy-policy', '/terms'])('%s links to the account-deletion page', async (path) => {
+    const { text } = await request.get(path);
+    expect(text).toContain('href="/account-deletion"');
+  });
+});
+
 describe('placement', () => {
   it('lives outside the API prefix', async () => {
     const res = await request.get(api('/privacy-policy'));

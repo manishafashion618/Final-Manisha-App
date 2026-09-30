@@ -1,5 +1,5 @@
 import rateLimit, { type IncrementResponse, type Options, type Store } from 'express-rate-limit';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { env } from '../config/env';
 import { RateLimitHit } from '../models/rateLimitHit.model';
 
@@ -71,6 +71,11 @@ interface LimiterOptions {
    * state may reset on a restart without harm.
    */
   store?: 'mongo' | 'memory';
+  /**
+   * Answers the refused request instead of the JSON envelope — for a public
+   * HTML page, where a JSON 429 would be meaningless to the visitor.
+   */
+  handler?: (req: Request, res: Response) => void;
 }
 
 /**
@@ -78,7 +83,14 @@ interface LimiterOptions {
  * fixed — rate limiting runs *before* JWT authentication — so req.user does
  * not exist yet at this stage and cannot be part of the key.
  */
-export function createRateLimiter({ windowMs, limit, message, prefix, store = 'mongo' }: LimiterOptions) {
+export function createRateLimiter({
+  windowMs,
+  limit,
+  message,
+  prefix,
+  store = 'mongo',
+  handler,
+}: LimiterOptions) {
   return rateLimit({
     windowMs,
     limit,
@@ -93,6 +105,7 @@ export function createRateLimiter({ windowMs, limit, message, prefix, store = 'm
         message: message ?? 'Too many requests, please try again later.',
       },
     },
+    ...(handler ? { handler: (req: Request, res: Response) => handler(req, res) } : {}),
   });
 }
 
