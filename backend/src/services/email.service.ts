@@ -27,6 +27,15 @@ const transporter: Transporter | null = emailConfigured
     })
   : null;
 
+// One line at boot, like Razorpay's and Cloudinary's — presence only, never the
+// account or the password. (Production refuses to boot without SMTP, so the
+// warning can only appear in development.)
+if (transporter) {
+  logger.info('SMTP configured');
+} else {
+  logger.warn('SMTP not configured — emails are not sent; codes are written to this log instead.');
+}
+
 const BRAND = 'Manisha Fashions';
 /** Matches the coral/rose primary used by the app's design system. */
 const ACCENT = '#E5325B';
