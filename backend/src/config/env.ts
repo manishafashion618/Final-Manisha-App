@@ -110,7 +110,14 @@ const envSchema = z.object({
    */
   GOOGLE_WEB_CLIENT_ID: blankable(z.string().trim().optional()),
 
-  // ── Transactional email (Gmail SMTP via nodemailer) ──
+  // ── Transactional email ──
+  /**
+   * Brevo's HTTPS API. When set, all mail goes through it and SMTP is not
+   * used at all: Render's free tier blocks outbound SMTP, so in production
+   * this is the only way mail leaves the server.
+   */
+  BREVO_API_KEY: blankable(z.string().trim().optional()),
+  // Gmail SMTP via nodemailer — the fallback when BREVO_API_KEY is unset.
   SMTP_USER: blankable(z.string().email('SMTP_USER must be an email address').optional()),
   /**
    * A Gmail *App Password* (16 characters, usually shown in four groups),
@@ -160,7 +167,11 @@ export const env = parsed.data;
 export const isProduction = env.NODE_ENV === 'production';
 export const isDevelopment = env.NODE_ENV === 'development';
 
-export const emailConfigured = Boolean(env.SMTP_USER && env.SMTP_APP_PASSWORD);
+/** Brevo's HTTPS API is used whenever its key is set; SMTP only otherwise. */
+export const brevoConfigured = Boolean(env.BREVO_API_KEY);
+export const smtpConfigured = Boolean(env.SMTP_USER && env.SMTP_APP_PASSWORD);
+/** Some real way to send mail exists (rather than the dev-console fallback). */
+export const emailConfigured = brevoConfigured || smtpConfigured;
 export const googleAuthConfigured = Boolean(env.GOOGLE_WEB_CLIENT_ID);
 
 /**
@@ -197,15 +208,19 @@ export function weakSecretReason(value: string): string | null {
 /**
  * Features that may run degraded in development but must never ship half-configured.
  *
- * Password reset without SMTP would silently drop the email while still
- * telling the user one was sent — a worse failure than refusing to boot.
+ * Password reset with no way to send mail would silently drop the email while
+ * still telling the user one was sent — a worse failure than refusing to boot.
+ * Either Brevo's API key or both SMTP settings will do; with the key, SMTP is
+ * not needed at all (Render's free tier blocks outbound SMTP anyway).
  * Google sign-in without a web client id would reject every token.
  */
 if (isProduction) {
   const missing: string[] = [];
   if (!googleAuthConfigured) missing.push('GOOGLE_WEB_CLIENT_ID');
-  if (!env.SMTP_USER) missing.push('SMTP_USER');
-  if (!env.SMTP_APP_PASSWORD) missing.push('SMTP_APP_PASSWORD');
+  if (!brevoConfigured) {
+    if (!env.SMTP_USER) missing.push('SMTP_USER (or BREVO_API_KEY)');
+    if (!env.SMTP_APP_PASSWORD) missing.push('SMTP_APP_PASSWORD (or BREVO_API_KEY)');
+  }
   if (missing.length > 0) {
     throw new Error(
       `Invalid environment configuration: ${missing.join(', ')} must be set in production.`,
