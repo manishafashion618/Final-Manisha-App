@@ -38,7 +38,8 @@ export function RazorpayCheckoutScreen() {
       name: 'Manisha Fashions',
       description: params.description ?? 'Jewellery order',
       prefill: {
-        contact: user?.phone ?? '',
+        // The order's delivery phone, already normalised by the server.
+        contact: params.handle.contact ?? '',
         name: user?.name ?? '',
         email: user?.email ?? '',
       },

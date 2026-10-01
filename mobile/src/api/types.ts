@@ -192,6 +192,11 @@ export interface RazorpayHandle {
   amount: number;
   currency: string;
   keyId: string;
+  /**
+   * The order's delivery phone as Razorpay prefills it (+91 and ten digits),
+   * or empty when it has none usable. Absent from servers older than the field.
+   */
+  contact?: string;
 }
 
 export interface CheckoutResult {
