@@ -35,6 +35,12 @@ function sendPage(res: Response, html: string) {
 router.get('/privacy-policy', (_req, res) => sendPage(res, PRIVACY));
 router.get('/terms', (_req, res) => sendPage(res, TERMS));
 router.get('/account-deletion', (_req, res) => sendPage(res, DELETION_START));
+// A reload or Back after submitting a step re-requests its address with GET.
+// There is nothing to show there, so start the page again (303: a GET, never
+// a re-post of the form).
+router.get(['/account-deletion/code', '/account-deletion/confirm'], (_req, res) => {
+  res.redirect(303, '/account-deletion');
+});
 
 /* ── Account deletion by emailed code (Google Play's web deletion URL) ──────
  *
