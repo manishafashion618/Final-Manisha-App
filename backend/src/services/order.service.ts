@@ -403,7 +403,11 @@ export async function checkout(
     if (needsOnlinePayment) {
       // Exactly the online amount: the whole total online, the shipping
       // charge alone for COD. Never a figure from the client.
-      const handle = await paymentService.createRazorpayOrder(amountPaidOnline, order.orderNumber);
+      const handle = await paymentService.createRazorpayOrder(
+        amountPaidOnline,
+        order.orderNumber,
+        order.shippingAddress.phone,
+      );
       order.payment = { razorpayOrderId: handle.razorpayOrderId };
       await order.save();
       // The cart is deliberately kept until payment succeeds, so an abandoned
@@ -439,7 +443,11 @@ export async function getPaymentHandle(
   if (!order?.payment?.razorpayOrderId) {
     throw ApiError.notFound('This order has no payment waiting.');
   }
-  return paymentService.handleFor(order.payment.razorpayOrderId, amountsOf(order).paidOnline);
+  return paymentService.handleFor(
+    order.payment.razorpayOrderId,
+    amountsOf(order).paidOnline,
+    order.shippingAddress.phone,
+  );
 }
 
 /**

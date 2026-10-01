@@ -3,9 +3,23 @@ import mongoose from 'mongoose';
 import { isProduction } from '../config/env';
 import { logger } from '../config/logger';
 import { reportError } from '../config/monitoring';
+import { renderNotFound } from '../pages/notFound';
 import { ApiError } from '../utils/ApiError';
 
-export function notFoundHandler(req: Request, _res: Response, next: NextFunction): void {
+const NOT_FOUND_PAGE = renderNotFound();
+
+/**
+ * A browser asking for a page that does not exist (a GET or HEAD outside
+ * /api) gets a small HTML page with somewhere to go. Everything else — every
+ * /api path, and any other method — keeps the JSON envelope the app reads.
+ */
+export function notFoundHandler(req: Request, res: Response, next: NextFunction): void {
+  const isApi = req.path === '/api' || req.path.startsWith('/api/');
+  if (!isApi && (req.method === 'GET' || req.method === 'HEAD')) {
+    res.set('Cache-Control', 'no-store');
+    res.status(404).type('html').send(NOT_FOUND_PAGE);
+    return;
+  }
   next(ApiError.notFound(`Route ${req.method} ${req.originalUrl} not found`));
 }
 

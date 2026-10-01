@@ -15,11 +15,31 @@ export interface RazorpayOrderHandle {
   amount: number;
   currency: string;
   keyId: string;
+  /**
+   * The order's delivery phone, for the checkout's prefill.contact — so the
+   * sheet doesn't ask for a number the order already has. Empty when that
+   * phone isn't a usable Indian mobile number (see razorpayContact).
+   */
+  contact: string;
+}
+
+/**
+ * A phone number as Razorpay's checkout prefills it for India: +91 and the ten
+ * digits, nothing else. Spaces, dashes and brackets, a +91 (or 91) country
+ * code and a leading 0 are all tolerated. Anything that doesn't come down to a
+ * ten-digit Indian mobile number gives '' — an empty field the customer fills
+ * in, rather than a value Razorpay would reject.
+ */
+export function razorpayContact(phone: string | null | undefined): string {
+  if (!phone) return '';
+  const match = /^(?:\+91|91|0)?([6-9]\d{9})$/.exec(phone.replace(/[\s()-]/g, ''));
+  return match ? `+91${match[1]}` : '';
 }
 
 export async function createRazorpayOrder(
   amountInPaise: number,
   receipt: string,
+  deliveryPhone: string,
 ): Promise<RazorpayOrderHandle> {
   const razorpay = getRazorpay();
   if (!razorpay || !razorpayConfigured) {
@@ -40,6 +60,7 @@ export async function createRazorpayOrder(
     amount: Number(order.amount),
     currency: order.currency,
     keyId: env.RAZORPAY_KEY_ID as string,
+    contact: razorpayContact(deliveryPhone),
   };
 }
 
@@ -49,12 +70,17 @@ export function onlinePaymentAvailable(): boolean {
 }
 
 /** The handle the app opens Razorpay with, for an existing Razorpay order. */
-export function handleFor(razorpayOrderId: string, amountInPaise: number): RazorpayOrderHandle {
+export function handleFor(
+  razorpayOrderId: string,
+  amountInPaise: number,
+  deliveryPhone: string,
+): RazorpayOrderHandle {
   return {
     razorpayOrderId,
     amount: amountInPaise,
     currency: env.CURRENCY,
     keyId: env.RAZORPAY_KEY_ID as string,
+    contact: razorpayContact(deliveryPhone),
   };
 }
 
