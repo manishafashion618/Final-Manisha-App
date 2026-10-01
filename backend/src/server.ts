@@ -4,6 +4,7 @@ import { env } from './config/env';
 import { logger } from './config/logger';
 import { initMonitoring, reportError } from './config/monitoring';
 import { disconnectStore, initStore } from './config/store';
+import { verifySmtpConnection } from './services/email.service';
 import { checkRazorpayConfig } from './services/payment.service';
 import { startPendingPaymentSweep, stopPendingPaymentSweep } from './services/order.service';
 
@@ -15,6 +16,9 @@ async function bootstrap(): Promise<void> {
   // Logs half-set, mismatched, or test-in-production Razorpay keys. Never
   // blocks boot: COD keeps working without online payment.
   void checkRazorpayConfig();
+  // Signs in to Gmail so a bad App Password shows in the boot log. Not awaited:
+  // it never delays listening, and a failure only warns.
+  void verifySmtpConnection();
   // Expires online orders left unpaid and releases their stock.
   startPendingPaymentSweep();
 

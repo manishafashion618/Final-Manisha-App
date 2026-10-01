@@ -1,6 +1,7 @@
 import nodemailer, { type Transporter } from 'nodemailer';
 import { env, emailConfigured, isProduction } from '../config/env';
 import { logger } from '../config/logger';
+import { scrubText } from '../utils/scrubPii';
 
 /**
  * Transactional email over Gmail SMTP.
@@ -34,6 +35,37 @@ if (transporter) {
   logger.info('SMTP configured');
 } else {
   logger.warn('SMTP not configured — emails are not sent; codes are written to this log instead.');
+}
+
+/**
+ * Signs in to Gmail once at startup, so a wrong App Password shows up in the
+ * boot log rather than at the first customer's password reset.
+ *
+ * Called without being awaited (server.ts), so it never delays the server
+ * starting to listen, and it never throws: a failure is a warning, and the
+ * server keeps running — every send already handles a failed delivery.
+ *
+ * The warning carries Gmail's error message, never the credentials: the
+ * account and the App Password (with or without its spaces) are stripped out
+ * explicitly, and any other address or token is scrubbed as in error reports.
+ */
+export async function verifySmtpConnection(): Promise<void> {
+  if (!transporter) return;
+  try {
+    await transporter.verify();
+    logger.info('SMTP verified with Gmail');
+  } catch (error) {
+    logger.warn(`SMTP could not be verified with Gmail: ${withoutCredentials(error)}`);
+  }
+}
+
+function withoutCredentials(error: unknown): string {
+  let message = error instanceof Error ? error.message : String(error);
+  const password = env.SMTP_APP_PASSWORD ?? '';
+  for (const secret of [env.SMTP_USER, password, password.replace(/\s+/g, '')]) {
+    if (secret) message = message.split(secret).join('[redacted]');
+  }
+  return scrubText(message);
 }
 
 const BRAND = 'Manisha Fashions';
