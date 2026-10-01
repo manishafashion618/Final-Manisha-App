@@ -12,16 +12,42 @@ const PATTERNS: Array<[RegExp, string]> = [
   [/eyJ[\w-]+\.[\w-]+\.[\w-]+/g, '[token]'],
   [/Bearer\s+\S+/gi, 'Bearer [token]'],
   [/[^\s@"'<>(),;:]+@[^\s@"'<>(),;:]+\.[a-z]{2,}/gi, '[email]'],
-  // Also the common "98765 43210" / "98765-43210" grouping.
-  [/(?:\+?91[\s-]?)?(?<!\d)[6-9]\d{4}[\s-]?\d{5}(?!\d)/g, '[phone]'],
   [/\b(?:pay|order|rfnd)_[A-Za-z0-9]{6,}\b/g, '[razorpay-id]'],
+];
+
+/**
+ * Applied after PATTERNS, and only to the text between ids (see IDS).
+ *
+ * A mobile number goes whole, with whatever leads it — +91 or 91 (with or
+ * without a space or dash), a 0, or nothing — so it is caught as stored
+ * (+919876543210), as typed (98765 43210) and as dialled (09876543210). It
+ * must stand alone: digits either side make it part of a longer number, such
+ * as a timestamp.
+ */
+const NUMBER_PATTERNS: Array<[RegExp, string]> = [
+  [/(?<!\d)(?:\+?91[\s-]?)?0?[6-9]\d{4}[\s-]?\d{5}(?!\d)/g, '[phone]'],
   [/(?<!\d)\d{6}(?!\d)/g, '[6-digit]'],
 ];
+
+/**
+ * Ids that hold nothing personal but contain runs of digits NUMBER_PATTERNS
+ * would take for a phone or a code: Mongo ObjectIds (order ids, in URLs and
+ * messages) and order numbers (MF-20261001-482913). They are kept whole.
+ */
+const IDS = /\b([0-9a-f]{24}|MF-\d{8}-[0-9A-F]{6})\b/;
 
 export function scrubText(value: string): string {
   let result = value;
   for (const [pattern, replacement] of PATTERNS) result = result.replace(pattern, replacement);
-  return result;
+  // split() with a capturing group puts each id at an odd index.
+  return result
+    .split(IDS)
+    .map((part, index) =>
+      index % 2 === 1
+        ? part
+        : NUMBER_PATTERNS.reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), part),
+    )
+    .join('');
 }
 
 /** Deep-scrubs strings inside any JSON-like value; drops known-sensitive keys. */

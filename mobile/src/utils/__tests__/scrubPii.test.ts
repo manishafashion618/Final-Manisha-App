@@ -19,4 +19,29 @@ describe('scrubPii (mobile)', () => {
     const scrubbed = scrubValue({ order: { shippingAddress: { line1: '12 MG Road' }, note: 'x@y.in' } });
     expect(JSON.stringify(scrubbed)).not.toMatch(/MG Road|x@y\.in/);
   });
+
+  it.each([
+    '+919876543210',
+    '919876543210',
+    '9876543210',
+    '09876543210',
+    '+91 9876543210',
+    '98765 43210',
+    '+91 98765 43210',
+    '+91-98765-43210',
+  ])('replaces the mobile number %s whole', (phone) => {
+    expect(scrubText(`{"contact":"${phone}"}`)).toBe('{"contact":"[phone]"}');
+  });
+
+  // Six-digit amounts aren't here: 150000 paise looks exactly like a reset
+  // code or a PIN code, and the 6-digit rule keeps hiding all three.
+  it.each([
+    ['an order id', 'https://api.example.com/api/v1/orders/6a1f9876543210abcdef0123/payment'],
+    ['another order id', 'Order 6a1fbc482913de0f1a2b3c4d is not awaiting payment'],
+    ['order numbers', 'MF-20261001-A1B2C3 and MF-20261001-482913'],
+    ['amounts', 'Paid 50000 of 1250000 paise (₹12,500.00); limit 100000000'],
+    ['timestamps', '2026-10-01T17:13:56.627Z at 1790812836627 (1790812836)'],
+  ])('leaves %s alone', (_label, text) => {
+    expect(scrubText(text)).toBe(text);
+  });
 });
