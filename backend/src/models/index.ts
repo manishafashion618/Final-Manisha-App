@@ -8,6 +8,7 @@ import { Product } from './product.model';
 import { RateLimitHit } from './rateLimitHit.model';
 import { RefreshToken } from './refreshToken.model';
 import { Review } from './review.model';
+import { RoleChange } from './roleChange.model';
 import { User } from './user.model';
 import { Wishlist } from './wishlist.model';
 
@@ -29,4 +30,5 @@ export const ALL_MODELS: Array<Model<any>> = [
   CodStateConfig,
   KvEntry,
   RateLimitHit,
+  RoleChange,
 ];

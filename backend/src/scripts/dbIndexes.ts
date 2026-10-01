@@ -131,7 +131,9 @@ async function main(): Promise<void> {
   console.log(`\nDatabase : ${redactMongoUri(uri)}${isLocalMongoUri(uri) ? ' (local)' : ''}`);
   console.log(`Mode     : ${APPLY ? 'APPLY — will build and drop indexes' : 'CHECK — read-only'}\n`);
 
-  await mongoose.connect(uri, { serverSelectionTimeoutMS: 20_000, autoIndex: false });
+  // autoCreate off as well: Mongoose 8 otherwise creates every missing
+  // collection on connect, and CHECK must write nothing.
+  await mongoose.connect(uri, { serverSelectionTimeoutMS: 20_000, autoIndex: false, autoCreate: false });
   const { ALL_MODELS } = await import('../models');
 
   try {
