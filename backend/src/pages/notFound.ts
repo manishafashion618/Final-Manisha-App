@@ -12,6 +12,7 @@ export function renderNotFound(): string {
 <h1>Page not found</h1>
 <p>There's nothing at this address. You may be looking for:</p>
 <ul>
+  <li><a href="/">Home</a></li>
   <li><a href="/account-deletion">Delete your account</a></li>
   <li><a href="/privacy-policy">Privacy policy</a></li>
 </ul>

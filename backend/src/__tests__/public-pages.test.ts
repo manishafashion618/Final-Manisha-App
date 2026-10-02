@@ -83,9 +83,20 @@ describe('GET /terms', () => {
     expect(res.text).not.toMatch(/<script/i);
   });
 
-  it('carries its own date: the 3-year role-change line moved only the privacy policy', async () => {
+  it('carries its own date', async () => {
     expect((await request.get('/privacy-policy')).text).toContain('Last updated: 2 October 2026');
-    expect((await request.get('/terms')).text).toContain('Last updated 29 September 2026');
+    expect((await request.get('/terms')).text).toContain('Last updated 2 October 2026');
+  });
+
+  it('names the business, its address, phone and courts, with no placeholder left', async () => {
+    const text = await readable('/terms');
+    expect(text).toContain('Manisha Fashions (proprietor: Uma Maheswari)');
+    expect(text).toContain(
+      'B-39, Gaffour Nagar Extn, Sree Nivas Garden, Manjalai Road, Kakaayanthope, Ariankuppam, Puducherry 605007',
+    );
+    expect(text).toContain('Phone: +91 80561 14501');
+    expect(text).toContain('the courts at Puducherry have jurisdiction');
+    expect(text).not.toMatch(/\[[A-Z ]+[:\]]/);
   });
 });
 

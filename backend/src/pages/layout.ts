@@ -69,6 +69,20 @@ export function page(title: string, body: string): string {
   .notice-info { background: rgba(0,0,0,.05); color: var(--text); }
   .notice-error { background: rgba(231,27,76,.08); color: #B3123A; }
   a { color: var(--primary); }
+  .products {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 12px; padding: 0; margin: 16px 0; list-style: none;
+  }
+  .product {
+    background: var(--surface); border-radius: 16px; overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .product img, .product .no-image {
+    display: block; width: 100%; aspect-ratio: 1; object-fit: cover; background: var(--bg);
+  }
+  .product p { margin: 0; padding: 0 12px; }
+  .product .name { color: var(--text); font-weight: 600; padding-top: 10px; line-height: 1.35; }
+  .product .price { color: var(--text); padding-bottom: 12px; }
   footer { margin-top: 48px; font-size: 14px; color: var(--faint); }
 </style>
 </head>
@@ -77,8 +91,12 @@ export function page(title: string, body: string): string {
 <p class="brand">${BUSINESS.brand}</p>
 ${body}
 <footer>
+  <a href="/">Home</a> ·
+  <a href="/contact">Contact</a> ·
+  <a href="/refund-policy">Refund &amp; cancellation</a> ·
+  <a href="/shipping-policy">Shipping &amp; delivery</a> ·
   <a href="/privacy-policy">Privacy policy</a> ·
-  <a href="/terms">Terms of service</a> ·
+  <a href="/terms">Terms</a> ·
   <a href="/account-deletion">Delete your account</a>
 </footer>
 </main>

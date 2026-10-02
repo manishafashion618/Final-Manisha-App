@@ -180,3 +180,20 @@ export async function findLowStock(threshold: number, limit = 20): Promise<IProd
 export async function countAll(includeInactive = false): Promise<number> {
   return Product.countDocuments(includeInactive ? {} : { isActive: true });
 }
+
+/** What the public home page shows of a product, and nothing more. */
+export type ShowcaseProduct = Pick<IProduct, 'name' | 'images' | 'retailPrice' | 'visibility'>;
+
+/**
+ * Products on sale to retail customers (the same rule as the retail
+ * storefront), newest first. Only the fields the page shows are loaded: the
+ * wholesale price never leaves the database.
+ */
+export async function listRetailShowcase(limit: number): Promise<ShowcaseProduct[]> {
+  return Product.find({ isActive: true, visibility: { $in: ['both', 'retail'] } })
+    .select({ _id: 0, name: 1, images: 1, retailPrice: 1, visibility: 1 })
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .lean<ShowcaseProduct[]>()
+    .exec();
+}

@@ -48,8 +48,8 @@ advertising.</p>
 
 <h2>4. Service providers</h2>
 <p>We use Razorpay (payments), Cloudinary (product images), Google (sign-in), Render (hosting),
-MongoDB Atlas (database) and Gmail (transactional email). They process data only to provide these
-services to us.</p>
+MongoDB Atlas (database), Gmail (transactional email) and our courier partners (delivery). They
+process data only to provide these services to us.</p>
 
 <h2>5. Security</h2>
 <p>All data is encrypted in transit (HTTPS). Passwords are hashed. Sessions end immediately after

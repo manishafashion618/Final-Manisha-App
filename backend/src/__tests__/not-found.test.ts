@@ -24,11 +24,12 @@ describe('reloading or going Back on the account-deletion form', () => {
 });
 
 describe('a browser asking for a page that does not exist', () => {
-  it.each(['/no-such-page-7f3k', '/', '/static/missing.jpg'])('GET %s gets an HTML 404 with links', async (path) => {
+  it.each(['/no-such-page-7f3k', '/static/missing.jpg'])('GET %s gets an HTML 404 with links', async (path) => {
     const res = await request.get(path);
     expect(res.status).toBe(404);
     expect(res.headers['content-type']).toMatch(/text\/html/);
     expect(res.text).toContain('Page not found');
+    expect(res.text).toContain('<li><a href="/">Home</a></li>');
     expect(res.text).toContain('href="/account-deletion"');
     expect(res.text).toContain('href="/privacy-policy"');
     expect(res.text).not.toMatch(/<script/i);
