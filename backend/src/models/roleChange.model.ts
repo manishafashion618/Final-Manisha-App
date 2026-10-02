@@ -10,9 +10,15 @@ import { Schema, model, type Document, type Types } from 'mongoose';
  *
  * Deliberately not deleted with the account it refers to: the point of an
  * audit trail is that it outlives the thing it describes. The row keeps ids
- * and the role change, and an email snapshot only so a deleted account is
- * still identifiable to whoever reads the log.
+ * and the role change. The email snapshot makes the log readable; when an
+ * account is deleted, its email is replaced with DELETED_ACCOUNT. Entries are
+ * kept for 3 years, as the privacy policy says, then expire.
  */
+export const DELETED_ACCOUNT = 'deleted account';
+
+/** 3 × 365 days plus a leap day, so an entry never goes before three full years. */
+export const ROLE_CHANGE_RETENTION_SECONDS = 1096 * 24 * 60 * 60;
+
 export interface IRoleChange extends Document<Types.ObjectId> {
   _id: Types.ObjectId;
   actorId: Types.ObjectId;
@@ -38,8 +44,9 @@ const roleChangeSchema = new Schema<IRoleChange>(
   { timestamps: { createdAt: true, updatedAt: false } },
 );
 
-// The log is read newest-first, and occasionally filtered to one account.
-roleChangeSchema.index({ createdAt: -1 });
+// The log is read newest-first, and occasionally filtered to one account. The
+// newest-first index doubles as the TTL index that expires entries.
+roleChangeSchema.index({ createdAt: -1 }, { expireAfterSeconds: ROLE_CHANGE_RETENTION_SECONDS });
 roleChangeSchema.index({ targetId: 1, createdAt: -1 });
 
 export const RoleChange = model<IRoleChange>('RoleChange', roleChangeSchema);

@@ -4,7 +4,7 @@ import { Cart } from '../models/cart.model';
 import { Order } from '../models/order.model';
 import { Product } from '../models/product.model';
 import { Review } from '../models/review.model';
-import { RoleChange } from '../models/roleChange.model';
+import { DELETED_ACCOUNT, RoleChange } from '../models/roleChange.model';
 import { User } from '../models/user.model';
 import { Wishlist } from '../models/wishlist.model';
 import * as accountService from '../services/account.service';
@@ -205,25 +205,30 @@ describe('DELETE /auth/me — in-app deletion', () => {
     expect(JSON.stringify(res.body)).not.toContain('Priya');
   });
 
-  it('drops the email from the role-change trail but keeps the entry', async () => {
+  it('replaces the email in the role-change trail with "deleted account" and keeps the entry', async () => {
     const session = await register('shopper@example.com');
     const admin = new Types.ObjectId();
-    await RoleChange.create({
-      actorId: admin,
-      actorEmail: 'owner@example.com',
-      targetId: session.user.id,
-      targetEmail: 'shopper@example.com',
-      action: 'role',
-      from: 'retail',
-      to: 'staff',
-    });
+    const other = new Types.ObjectId();
+    // Changed by an admin; made a change itself (as staff it could not, but the
+    // trail is matched by id either way); and an entry that is not about it.
+    await RoleChange.create([
+      { actorId: admin, actorEmail: 'owner@example.com', targetId: session.user.id, targetEmail: 'shopper@example.com', action: 'role', from: 'retail', to: 'staff' },
+      { actorId: session.user.id, actorEmail: 'shopper@example.com', targetId: other, targetEmail: 'other@example.com', action: 'active', from: 'true', to: 'false' },
+      { actorId: admin, actorEmail: 'owner@example.com', targetId: other, targetEmail: 'other@example.com', action: 'role', from: 'retail', to: 'staff' },
+    ]);
     // A staff account is still deletable; only admins are not.
     await deleteAccount(session.accessToken).expect(200);
 
-    const row = await RoleChange.findOne({ targetId: session.user.id }).lean();
-    expect(row).not.toBeNull();
-    expect(row?.targetEmail).toBeUndefined();
-    expect(row?.actorEmail).toBe('owner@example.com');
+    const rows = await RoleChange.find().sort({ _id: 1 }).lean();
+    expect(rows.map(({ actorId, actorEmail, targetId, targetEmail, action, from, to }) => ({
+      actorId: actorId.toString(), actorEmail, targetId: targetId.toString(), targetEmail, action, from, to,
+    }))).toEqual([
+      { actorId: admin.toString(), actorEmail: 'owner@example.com', targetId: session.user.id, targetEmail: DELETED_ACCOUNT, action: 'role', from: 'retail', to: 'staff' },
+      { actorId: session.user.id, actorEmail: DELETED_ACCOUNT, targetId: other.toString(), targetEmail: 'other@example.com', action: 'active', from: 'true', to: 'false' },
+      { actorId: admin.toString(), actorEmail: 'owner@example.com', targetId: other.toString(), targetEmail: 'other@example.com', action: 'role', from: 'retail', to: 'staff' },
+    ]);
+    expect(DELETED_ACCOUNT).toBe('deleted account');
+    expect(JSON.stringify(rows)).not.toContain('shopper@example.com');
   });
 
   describe('refuses while the store still owes or expects something', () => {

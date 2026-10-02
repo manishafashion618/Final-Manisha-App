@@ -64,6 +64,7 @@ cart, and all your signed-in sessions. Reviews you wrote stay, but are shown as 
 of your name. Past orders are kept for 8 years for GST and income-tax records, with your name,
 phone and street address removed; only city, state and PIN code remain. Deletion isn't available
 while a delivery is in progress or a refund is still due.</p>
+<p>Records of account role changes are kept for 3 years.</p>
 
 <h2>7. Your rights</h2>
 <p>You can access, correct or delete your personal data. Under India's Digital Personal Data

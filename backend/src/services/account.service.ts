@@ -3,7 +3,7 @@ import { env } from '../config/env';
 import { logger } from '../config/logger';
 import { Cart } from '../models/cart.model';
 import { Order } from '../models/order.model';
-import { RoleChange } from '../models/roleChange.model';
+import { DELETED_ACCOUNT, RoleChange } from '../models/roleChange.model';
 import { User, type IUser } from '../models/user.model';
 import { Wishlist } from '../models/wishlist.model';
 import { ApiError } from '../utils/ApiError';
@@ -124,9 +124,10 @@ async function eraseAccount(user: IUser): Promise<void> {
     Cart.deleteOne({ userId }),
     Wishlist.deleteOne({ userId }),
     Order.updateMany({ userId }, { $set: ANONYMISED_ADDRESS, $unset: { 'shippingAddress.line2': 1 } }),
-    // The trail keeps who-did-what by id; the email snapshot is personal data.
-    RoleChange.updateMany({ targetId: userId }, { $unset: { targetEmail: 1 } }),
-    RoleChange.updateMany({ actorId: userId }, { $unset: { actorEmail: 1 } }),
+    // The trail keeps who-did-what by id; the email snapshot is personal data,
+    // so it gives way to a label that still says what happened to the account.
+    RoleChange.updateMany({ targetId: userId }, { $set: { targetEmail: DELETED_ACCOUNT } }),
+    RoleChange.updateMany({ actorId: userId }, { $set: { actorEmail: DELETED_ACCOUNT } }),
   ]);
 
   logger.info(`Account ${userId.toString()} deleted and anonymised.`);

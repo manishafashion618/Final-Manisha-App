@@ -58,6 +58,8 @@ describe('GET /privacy-policy', () => {
 
     expect(text).toContain('kept for up to 90 days');
     expect(text).toContain('kept for 8 years for GST and income-tax records');
+    // Enforced by the TTL index on the role-change log (roleChange.model.ts).
+    expect(text).toContain('Records of account role changes are kept for 3 years.');
     // The same list as account.service.ts eraseAccount() and the deletion page.
     for (const removed of [
       'email, name, profile photo, password, Google sign-in link, phone number and saved addresses',
