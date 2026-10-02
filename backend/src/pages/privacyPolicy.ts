@@ -15,7 +15,7 @@ export function renderPrivacyPolicy(): string {
     'Privacy policy',
     `
 <h1>Privacy Policy</h1>
-<p class="meta">Last updated: ${BUSINESS.policyDate}</p>
+<p class="meta">Last updated: ${BUSINESS.privacyPolicyDate}</p>
 
 <p>${BUSINESS.brand} ("we") runs the ${BUSINESS.brand} app (in.manishafashions.app). This policy
 explains what we collect, why, and your choices.</p>

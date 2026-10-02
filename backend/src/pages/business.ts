@@ -17,6 +17,7 @@ export const BUSINESS = {
   phone: '[CONFIRM WITH CLIENT: support phone number]',
   /** Grievance officer — named contact required by the IT Rules, 2021. */
   grievanceOfficer: '[CONFIRM WITH CLIENT: name of grievance officer]',
-  /** Shown as "Last updated" on the policy and terms. */
-  policyDate: '29 September 2026',
+  /** "Last updated" on each page: move a page's date when its content changes. */
+  privacyPolicyDate: '2 October 2026',
+  termsDate: '29 September 2026',
 } as const;

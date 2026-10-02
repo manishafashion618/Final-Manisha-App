@@ -12,7 +12,7 @@ export function renderTerms(): string {
     'Terms of service',
     `
 <h1>Terms of service</h1>
-<p class="meta">Last updated ${BUSINESS.policyDate}</p>
+<p class="meta">Last updated ${BUSINESS.termsDate}</p>
 
 <p>These terms apply when you use the ${BUSINESS.brand} app to browse and buy jewellery from
 <strong>${BUSINESS.legalName}</strong> ("we", "us"). By creating an account or placing an order you

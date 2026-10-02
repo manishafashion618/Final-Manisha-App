@@ -82,6 +82,11 @@ describe('GET /terms', () => {
     expect(res.text).toContain('manishafashion618@gmail.com');
     expect(res.text).not.toMatch(/<script/i);
   });
+
+  it('carries its own date: the 3-year role-change line moved only the privacy policy', async () => {
+    expect((await request.get('/privacy-policy')).text).toContain('Last updated: 2 October 2026');
+    expect((await request.get('/terms')).text).toContain('Last updated 29 September 2026');
+  });
 });
 
 describe('footer', () => {
