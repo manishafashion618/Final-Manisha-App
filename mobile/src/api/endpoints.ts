@@ -48,7 +48,20 @@ export interface StoreConfig {
    * single default charge above rather than asking for per-address options.
    */
   codPerStateSupported?: boolean;
+  /**
+   * The *default* prepaid shipping charge in paise.
+   *
+   * Used only against a server that does not price prepaid shipping per state
+   * (`prepaidPerStateSupported` absent). Otherwise the real figure comes from
+   * `orderApi.codOptions`, like the COD one.
+   */
   prepaidShippingCharge: number;
+  /**
+   * True when the API prices PREPAID shipping per state. Optional because a
+   * server that predates the feature omits it — the checkout screen then
+   * falls back to the single default charge above.
+   */
+  prepaidPerStateSupported?: boolean;
   /**
    * COD customers pay the shipping/COD charge online (Razorpay) before the
    * order is confirmed, and only the items in cash. Absent on older servers.
@@ -275,7 +288,7 @@ export const wishlistApi = {
 
 /* ── Orders (PRD 4.4 / 4.5) ─────────────────────────────────────────────── */
 
-/** What COD costs for one saved address, and whether it is offered there. */
+/** What each payment method costs for one saved address. */
 export interface CodOptions {
   addressId: string;
   /** The state on the address, exactly as the customer typed it. */
@@ -283,6 +296,10 @@ export interface CodOptions {
   codEnabled: boolean;
   /** Integer paise. Only meaningful when codEnabled is true. */
   codCharge: number;
+  /**
+   * Integer paise: shipping on a prepaid (online) order to this state,
+   * already resolved against the store default. Independent of codEnabled.
+   */
   prepaidShippingCharge: number;
   /** True when no rule matched this state and the store default applied. */
   usingDefault: boolean;
@@ -365,22 +382,41 @@ export const adminApi = {
    * Creates or replaces one state's rule. The state travels in the path, so it
    * is encoded here — several of them contain spaces.
    */
-  saveCodConfig: (state: string, input: { codEnabled: boolean; codCharge: number }) =>
-    put<CodStateConfig>(`/admin/cod-config/${encodeURIComponent(state)}`, input),
+  saveCodConfig: (
+    state: string,
+    input: {
+      codEnabled: boolean;
+      codCharge: number;
+      /**
+       * Integer paise, or null to follow the store default. OMIT the key
+       * entirely to leave the saved amount untouched — which is what this
+       * screen does against a server without `prepaidPerStateSupported`.
+       */
+      prepaidCharge?: number | null;
+    },
+  ) => put<CodStateConfig>(`/admin/cod-config/${encodeURIComponent(state)}`, input),
 
-  /** Drops the override so the state falls back to the store default. */
+  /** Drops the override so the state falls back to the store defaults. */
   deleteCodConfig: (state: string) =>
-    del<{ state: string; codEnabled: boolean; codCharge: number }>(
+    del<{ state: string; codEnabled: boolean; codCharge: number; prepaidCharge: number }>(
       `/admin/cod-config/${encodeURIComponent(state)}`,
     ),
 };
 
-/** One state's COD rule as the admin screen shows it. */
+/** One state's shipping rule as the admin screen shows it. */
 export interface CodStateConfig {
   state: string;
   codEnabled: boolean;
   /** Integer paise. */
   codCharge: number;
+  /**
+   * Integer paise: prepaid (online) shipping, already resolved against the
+   * store default. Absent from a server that predates per-state prepaid
+   * pricing.
+   */
+  prepaidCharge?: number;
+  /** True when this state has no prepaid amount of its own. */
+  prepaidUsingDefault?: boolean;
   /** False for a state listed from the catalogue with no rule of its own. */
   configured: boolean;
   updatedAt?: string;
@@ -388,7 +424,7 @@ export interface CodStateConfig {
 
 export interface CodConfigListing {
   /** What an unconfigured state falls back to (from the server's env). */
-  defaults: { codEnabled: boolean; codCharge: number };
+  defaults: { codEnabled: boolean; codCharge: number; prepaidCharge?: number };
   /** Only the states the store has actually set. */
   configured: CodStateConfig[];
   /**

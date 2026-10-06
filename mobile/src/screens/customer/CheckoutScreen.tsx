@@ -33,13 +33,19 @@ type Route = RouteProp<RootStackParamList, 'Checkout'>;
 
 /**
  * PRD 4.3 / 4.4 — order summary, address selection, and payment method.
- * Three grouped decisions and one total: Razorpay orders ship free, COD adds
- * the shipping charge the server owns for the delivery state.
+ * Three grouped decisions and one total, built on the shipping charge the
+ * server owns for the delivery state.
  *
- * COD is priced per state, so the charge is fetched for the *selected address*
- * rather than read from a single store-wide setting, and the option disappears
- * entirely in a state where the store has switched COD off. None of that is
- * trusted: checkout re-derives both on the server from the saved address.
+ * BOTH payment methods are priced per state, so both charges are fetched for
+ * the *selected address* rather than read from a store-wide setting, and COD
+ * disappears entirely in a state where the store has switched it off. None of
+ * that is trusted: checkout re-derives everything on the server from the
+ * saved address.
+ *
+ * This screen is the only place in the app that adds a total up itself, and
+ * the number it shows is the one Razorpay is about to charge. So it never
+ * guesses: until the address's own charges arrive it shows no price and will
+ * not place the order.
  *
  * Two sources feed the same screen. Without params it checks out the saved
  * cart. With `buyNow` it orders a single product and never touches the cart —
@@ -62,14 +68,14 @@ export function CheckoutScreen() {
   const [configLoaded, setConfigLoaded] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('razorpay');
 
-  /* COD for the selected address's state. `null` while it is being fetched,
-     after a failed fetch (see `codLookupFailed`), or when the server does not
-     price COD per state — only in that last case does the screen use the
-     single default charge in `config`. */
+  /* Both charges for the selected address's state. `null` while it is being
+     fetched, after a failed fetch (see `shippingLookupFailed`), or when the
+     server prices neither method per state — only in that last case does the
+     screen use the single default charges in `config`. */
   const [codOptions, setCodOptions] = useState<CodOptions | null>(null);
-  const [codLookupFailed, setCodLookupFailed] = useState(false);
+  const [shippingLookupFailed, setShippingLookupFailed] = useState(false);
   /** Bumped by "Try again" to re-run the lookup for the same address. */
-  const [codLookupAttempt, setCodLookupAttempt] = useState(0);
+  const [shippingLookupAttempt, setShippingLookupAttempt] = useState(0);
 
   /* The one product a Buy-now checkout is ordering. Its price comes from the
      API at the buyer's tier — this screen never computes money, it only adds
@@ -124,23 +130,26 @@ export function CheckoutScreen() {
   const selectedAddressId = selectedAddress?.id ?? null;
 
   /*
-     COD is priced by the delivery state, so this re-runs whenever the chosen
-     address changes — coming back from "Change" with a Maharashtra address
-     must not keep quoting the Kerala charge.
+     Shipping is priced by the delivery state, so this re-runs whenever the
+     chosen address changes — coming back from "Change" with a Maharashtra
+     address must not keep quoting the Kerala charge.
 
-     A server that does not price COD per state (`codPerStateSupported`
-     absent) is left on the store-wide default rather than being asked a
+     One request answers for both methods. A server that prices neither per
+     state is left on the store-wide defaults rather than being asked a
      question it cannot answer.
 
      A failed or unfinished lookup does NOT fall back to the default: that
      showed ₹50 for a state configured at ₹100, and the server then charged
-     ₹100. Until the address's own figure arrives, COD shows no price and
-     cannot be placed; a failure offers a retry.
+     ₹100. Until the address's own figures arrive the summary shows no price
+     and the order cannot be placed; a failure offers a retry.
   */
+  const perStateShipping =
+    config?.codPerStateSupported === true || config?.prepaidPerStateSupported === true;
+
   useEffect(() => {
     if (!selectedAddressId || !configLoaded) return;
-    setCodLookupFailed(false);
-    if (config?.codPerStateSupported !== true) {
+    setShippingLookupFailed(false);
+    if (!perStateShipping) {
       setCodOptions(null);
       return;
     }
@@ -153,13 +162,13 @@ export function CheckoutScreen() {
         if (!cancelled) setCodOptions(result);
       })
       .catch(() => {
-        if (!cancelled) setCodLookupFailed(true);
+        if (!cancelled) setShippingLookupFailed(true);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [selectedAddressId, configLoaded, config?.codPerStateSupported, codLookupAttempt]);
+  }, [selectedAddressId, configLoaded, perStateShipping, shippingLookupAttempt]);
 
   /*
      Whether COD may be offered at all. Unknown counts as available: the option
@@ -177,6 +186,19 @@ export function CheckoutScreen() {
       ? (codOptions?.codCharge ?? null)
       : (config?.codShippingCharge ?? null);
 
+  /**
+     The prepaid (online) shipping charge for this address, on the same terms.
+
+     This figure decides what Razorpay is asked for, so it is taken from the
+     address lookup wherever the server offers one. Reading the store-wide
+     default instead is what made the total disagree with the payment sheet in
+     a state priced differently.
+  */
+  const prepaidCharge: number | null =
+    config?.prepaidPerStateSupported === true
+      ? (codOptions?.prepaidShippingCharge ?? null)
+      : (config?.prepaidShippingCharge ?? null);
+
   /*
      COD can go away under the customer — they pick an address in a state where
      the store does not offer it, or Razorpay comes back. Moving the selection
@@ -189,11 +211,16 @@ export function CheckoutScreen() {
     }
   }, [codAvailable, paymentMethod, config?.razorpayEnabled]);
 
-  /** `null` while the COD figure for this address is still unknown. */
-  const shippingCharge = useMemo((): number | null => {
-    if (!config) return 0;
-    return paymentMethod === 'cod' ? codCharge : config.prepaidShippingCharge;
-  }, [config, paymentMethod, codCharge]);
+  /**
+     `null` while this address's figure for the chosen method is still
+     unknown — including when `config` itself never loaded. It used to fall
+     back to 0 in that case, which showed "Free" against a server that was
+     about to charge for shipping.
+  */
+  const shippingCharge = useMemo(
+    (): number | null => (paymentMethod === 'cod' ? codCharge : prepaidCharge),
+    [paymentMethod, codCharge, prepaidCharge],
+  );
 
   const subtotal = buyNow
     ? buyNowProduct
@@ -380,8 +407,26 @@ export function CheckoutScreen() {
               onPress={() => setPaymentMethod('razorpay')}
               title="Pay online"
               subtitle="UPI, cards & netbanking"
-              note={config && !config.razorpayEnabled ? 'Unavailable' : 'Free'}
-              noteTone={config && !config.razorpayEnabled ? 'muted' : 'success'}
+              /* Prepaid shipping is priced per state, so this says what this
+                 address costs rather than a blanket "Free". */
+              note={
+                !config
+                  ? undefined
+                  : !config.razorpayEnabled
+                    ? 'Unavailable'
+                    : prepaidCharge === null
+                      ? shippingLookupFailed
+                        ? undefined
+                        : '…'
+                      : prepaidCharge === 0
+                        ? 'Free'
+                        : `+${formatPaise(prepaidCharge)}`
+              }
+              /* Only an actually-free state gets the success tone; a charge
+                 reads like the COD option's, which is muted. */
+              noteTone={
+                config?.razorpayEnabled && prepaidCharge === 0 ? 'success' : 'muted'
+              }
             />
             {/* A state where the store has switched COD off does not show the
                 option greyed out — it does not show it at all, leaving pay
@@ -404,7 +449,7 @@ export function CheckoutScreen() {
                       ? 'Unavailable'
                       : codCharge !== null
                         ? `+${formatPaise(codCharge)}`
-                        : codLookupFailed
+                        : shippingLookupFailed
                           ? undefined
                           : '…'
                 }
@@ -432,17 +477,17 @@ export function CheckoutScreen() {
             </Text>
           ) : null}
 
-          {codLookupFailed ? (
-            <View style={styles.codRetryRow}>
-              <Text style={[styles.paymentNote, styles.codRetryText]}>
-                Couldn't load the cash on delivery charge for this address.
+          {shippingLookupFailed ? (
+            <View style={styles.shippingRetryRow}>
+              <Text style={[styles.paymentNote, styles.shippingRetryText]}>
+                Couldn't load the shipping charge for this address.
               </Text>
               <PressableScale
-                onPress={() => setCodLookupAttempt((attempt) => attempt + 1)}
+                onPress={() => setShippingLookupAttempt((attempt) => attempt + 1)}
                 hitSlop={8}
                 accessibilityRole="button"
               >
-                <Text style={styles.codRetryLabel}>Try again</Text>
+                <Text style={styles.shippingRetryLabel}>Try again</Text>
               </PressableScale>
             </View>
           ) : null}
@@ -479,7 +524,7 @@ export function CheckoutScreen() {
               label="Shipping"
               value={
                 shippingCharge === null
-                  ? codLookupFailed
+                  ? shippingLookupFailed
                     ? 'Unavailable'
                     : 'Calculating…'
                   : shippingCharge === 0
@@ -541,13 +586,19 @@ export function CheckoutScreen() {
             }
             onPress={handlePlaceOrder}
             loading={placingOrder}
-            /* COD withdrawn while it was the only method — Razorpay is off too —
-               leaves nothing to place the order with. The server would refuse it
-               anyway; blocking here says so before the customer taps. */
+            /* No price, no order — for either method. A total the screen
+               cannot vouch for is exactly the one that disagrees with the
+               payment sheet, so the tap is refused until the charge arrives.
+
+               COD withdrawn while it was the only method — Razorpay is off
+               too — leaves nothing to place the order with. The server would
+               refuse it anyway; blocking here says so before the customer
+               taps. */
             disabled={
               !selectedAddressId ||
               !hasSomethingToOrder ||
-              (paymentMethod === 'cod' && (!codAvailable || codCharge === null || codBlockedByRazorpay))
+              shippingCharge === null ||
+              (paymentMethod === 'cod' && (!codAvailable || codBlockedByRazorpay))
             }
           />
         )}
@@ -651,15 +702,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xs,
   },
   optionNote: { ...typography.caption, color: colors.textFaint },
-  codRetryRow: {
+  shippingRetryRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.md,
     marginTop: spacing.sm,
   },
-  codRetryText: { flex: 1, marginTop: 0 },
-  codRetryLabel: { ...typography.footnoteStrong, color: colors.primary },
+  shippingRetryText: { flex: 1, marginTop: 0 },
+  shippingRetryLabel: { ...typography.footnoteStrong, color: colors.primary },
 
   summaryCard: { paddingHorizontal: spacing.xl, borderRadius: radius.lg, backgroundColor: colors.surface },
   summaryLine: {

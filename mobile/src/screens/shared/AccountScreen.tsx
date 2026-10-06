@@ -198,7 +198,7 @@ export function AccountScreen() {
               {canManageCod ? (
                 <Row
                   icon="sliders"
-                  label="COD settings"
+                  label="Shipping settings"
                   detail="Availability and charge, per state"
                   chevron
                   onPress={() => navigation.navigate('AdminCodSettings')}

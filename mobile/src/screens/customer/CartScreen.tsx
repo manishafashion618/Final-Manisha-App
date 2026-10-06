@@ -186,7 +186,7 @@ export function CartScreen() {
           <Text style={styles.summaryValue}>{formatPaise(cart?.subtotal ?? 0)}</Text>
         </View>
         <Text style={styles.shippingNote}>
-          Shipping calculated at checkout — free on prepaid orders.
+          Shipping calculated at checkout.
         </Text>
         <Button
           label="Checkout"

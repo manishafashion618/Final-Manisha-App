@@ -28,7 +28,8 @@ describe('GET /admin/cod-config', () => {
 
     const { defaults, configured, states } = response.body.data;
 
-    expect(defaults).toEqual({ codEnabled: true, codCharge: 5000 });
+    // PREPAID_SHIPPING_CHARGE defaults to 0 under test env.
+    expect(defaults).toEqual({ codEnabled: true, codCharge: 5000, prepaidCharge: 0 });
     expect(configured).toEqual([]);
     // 28 states + 8 union territories.
     expect(states).toHaveLength(36);
@@ -101,6 +102,95 @@ describe('PUT /admin/cod-config/:state', () => {
     await expect(CodStateConfig.countDocuments()).resolves.toBe(1);
     const row = await CodStateConfig.findOne();
     expect(row?.codCharge).toBe(11_000);
+  });
+
+  /* ── The prepaid amount ─────────────────────────────────────────────── */
+
+  it('stores a prepaid charge alongside the COD one, and reports it resolved', async () => {
+    const admin = await createTestUser({ accountType: 'admin' });
+
+    const saved = await request
+      .put(api('/admin/cod-config/Tamil%20Nadu'))
+      .set('Authorization', admin.auth)
+      .send({ codEnabled: true, codCharge: 5000, prepaidCharge: 6000 })
+      .expect(200);
+
+    expect(saved.body.data).toMatchObject({ prepaidCharge: 6000, prepaidUsingDefault: false });
+    expect((await CodStateConfig.findOne({ stateKey: 'tamil nadu' }))?.prepaidCharge).toBe(6000);
+  });
+
+  it('creates the row for a state that had none, from the prepaid amount alone', async () => {
+    // The admin screen lists unconfigured states at the store default; typing
+    // a prepaid amount into one has to bring the row into existence, or that
+    // state could never be priced from the app.
+    const admin = await createTestUser({ accountType: 'admin' });
+    await expect(CodStateConfig.countDocuments()).resolves.toBe(0);
+
+    const saved = await request
+      .put(api('/admin/cod-config/Puducherry'))
+      .set('Authorization', admin.auth)
+      .send({ codEnabled: true, codCharge: 5000, prepaidCharge: 6000 })
+      .expect(200);
+
+    expect(saved.body.data).toMatchObject({ state: 'Puducherry', prepaidCharge: 6000, configured: true });
+    await expect(CodStateConfig.countDocuments()).resolves.toBe(1);
+  });
+
+  it('leaves a stored prepaid charge alone when the request omits the field', async () => {
+    // This is what an admin build that predates prepaid pricing sends. Zod
+    // strips unknown keys, so an omitted field is indistinguishable from one
+    // that build never knew about — it must therefore mean "don't touch",
+    // never "clear". Otherwise an ordinary COD edit silently returns the
+    // state to the store default and customers are charged the wrong amount.
+    const admin = await createTestUser({ accountType: 'admin' });
+
+    await request
+      .put(api('/admin/cod-config/Tamil%20Nadu'))
+      .set('Authorization', admin.auth)
+      .send({ codEnabled: true, codCharge: 5000, prepaidCharge: 6000 })
+      .expect(200);
+
+    const edited = await request
+      .put(api('/admin/cod-config/Tamil%20Nadu'))
+      .set('Authorization', admin.auth)
+      .send({ codEnabled: true, codCharge: 9000 })
+      .expect(200);
+
+    expect(edited.body.data).toMatchObject({ codCharge: 9000, prepaidCharge: 6000 });
+    expect((await CodStateConfig.findOne({ stateKey: 'tamil nadu' }))?.prepaidCharge).toBe(6000);
+  });
+
+  it('returns a state to the store default when the prepaid charge is explicitly null', async () => {
+    const admin = await createTestUser({ accountType: 'admin' });
+
+    await request
+      .put(api('/admin/cod-config/Tamil%20Nadu'))
+      .set('Authorization', admin.auth)
+      .send({ codEnabled: true, codCharge: 5000, prepaidCharge: 6000 })
+      .expect(200);
+
+    const cleared = await request
+      .put(api('/admin/cod-config/Tamil%20Nadu'))
+      .set('Authorization', admin.auth)
+      .send({ codEnabled: true, codCharge: 5000, prepaidCharge: null })
+      .expect(200);
+
+    // 0 is the env default under test, and the row now follows it.
+    expect(cleared.body.data).toMatchObject({ prepaidCharge: 0, prepaidUsingDefault: true });
+    expect((await CodStateConfig.findOne({ stateKey: 'tamil nadu' }))?.prepaidCharge).toBeNull();
+  });
+
+  it('rejects a negative or fractional prepaid charge', async () => {
+    const admin = await createTestUser({ accountType: 'admin' });
+
+    for (const prepaidCharge of [-100, 150.5]) {
+      await request
+        .put(api('/admin/cod-config/Goa'))
+        .set('Authorization', admin.auth)
+        .send({ codEnabled: true, codCharge: 5000, prepaidCharge })
+        .expect(422);
+    }
+    await expect(CodStateConfig.countDocuments()).resolves.toBe(0);
   });
 
   it('rejects a charge that is not whole paise', async () => {

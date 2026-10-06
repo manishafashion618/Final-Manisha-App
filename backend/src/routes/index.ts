@@ -30,13 +30,14 @@ router.get('/health', (_req, res) => {
 
 /**
  * Storefront settings the client needs before it can render a correct checkout
- * summary — the COD shipping charge in particular (PRD 4.4 / 6). Values are
- * server-owned so changing the fee does not require an app release.
+ * summary — the shipping charges in particular (PRD 4.4 / 6). Values are
+ * server-owned so changing a fee does not require an app release.
  *
- * COD is now priced per delivery state, so the figures here are only the
- * fallback for a state the store has not configured. The charge that an order
- * will actually carry comes from GET /orders/cod-options?addressId=… once an
- * address is chosen, and checkout re-derives it server-side regardless.
+ * BOTH payment methods are now priced per delivery state, so the figures here
+ * are only the fallback for a state the store has not configured. The charge
+ * an order will actually carry comes from GET /orders/cod-options?addressId=…
+ * once an address is chosen, and checkout re-derives it server-side
+ * regardless.
  */
 router.get('/config', authenticate, (_req, res) => {
   res.success({
@@ -51,7 +52,14 @@ router.get('/config', authenticate, (_req, res) => {
      * confirmed, and only the items in cash. Absent on older servers.
      */
     codShippingPaidOnline: env.COD_SHIPPING_PAID_ONLINE,
+    /** Default only — see /orders/cod-options for the address's real charge. */
     prepaidShippingCharge: env.PREPAID_SHIPPING_CHARGE,
+    /**
+     * True when this server prices PREPAID shipping per state too. The client
+     * then takes the figure from /orders/cod-options rather than the default
+     * above, which is the only way its total can match what Razorpay charges.
+     */
+    prepaidPerStateSupported: true,
     razorpayEnabled: razorpayConfigured,
     razorpayKeyId: razorpayConfigured ? env.RAZORPAY_KEY_ID : null,
     /**
