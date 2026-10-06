@@ -37,12 +37,26 @@ interface Draft {
   codEnabled?: boolean;
   /** Rupee text exactly as typed, so "49." survives on the way to "49.50". */
   charge?: string;
+  /** The prepaid (online) shipping charge, same rules. */
+  prepaid?: string;
 }
 
 interface PendingChange {
   state: string;
   codEnabled: boolean;
   codCharge: number;
+  /**
+   * Present only when this row's prepaid amount actually changed. Left out
+   * otherwise so the request omits the key entirely and the server keeps
+   * whatever is stored — see adminApi.saveCodConfig.
+   */
+  prepaidCharge?: number;
+}
+
+/** Which of a row's two amounts could not be parsed. */
+interface RowErrors {
+  cod?: string;
+  prepaid?: string;
 }
 
 /** Rupees typed → paise, or the reason it cannot be saved. */
@@ -65,19 +79,26 @@ function withoutKeys<T>(record: Record<string, T>, keys: string[]): Record<strin
 }
 
 /**
- * PRD 4.4 / 6 — Cash on Delivery, per state. Admin only.
+ * PRD 4.4 / 6 — shipping, per state, for both payment methods. Admin only.
  *
  * Every state is listed, whether or not it has been configured: an unset state
  * shows the store default and says so. That way the screen is a complete
  * picture of what customers are charged rather than a list of exceptions.
+ * Saving an unset state creates its row, so a state is configured from here
+ * without anything having to exist first.
  *
- * Edits — the COD switch and the charge — are held as drafts and written only
- * by the Save button. Saving used to happen on blur, and on Android closing the
- * keyboard with Back does not blur the field, so a typed charge could be lost
- * without a word. Leaving with unsaved edits now asks first.
+ * Edits — the COD switch and the two charges — are held as drafts and written
+ * only by the Save button. Saving used to happen on blur, and on Android
+ * closing the keyboard with Back does not blur the field, so a typed charge
+ * could be lost without a word. Leaving with unsaved edits now asks first.
  *
- * The charge is typed in rupees — the same as the product form — and
- * converted to paise for the API.
+ * Only the amounts that changed are sent. The prepaid key is omitted when
+ * untouched, so this screen cannot clear a figure it was not asked to change —
+ * and an older build of this screen, which does not know the field exists,
+ * cannot either.
+ *
+ * Charges are typed in rupees — the same as the product form — and converted
+ * to paise for the API.
  */
 export function AdminCodSettingsScreen() {
   const navigation = useNavigation();
@@ -105,7 +126,7 @@ export function AdminCodSettingsScreen() {
     try {
       setListing(await adminApi.listCodConfig());
     } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : 'Could not load COD settings.');
+      setError(caught instanceof ApiError ? caught.message : 'Could not load shipping settings.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -125,6 +146,14 @@ export function AdminCodSettingsScreen() {
   };
 
   /**
+   * Whether this server prices prepaid shipping per state. A server that
+   * predates the feature sends no `prepaidCharge` in its defaults, and the
+   * prepaid column is then hidden rather than shown with a figure that saving
+   * would silently discard.
+   */
+  const prepaidSupported = listing?.defaults.prepaidCharge !== undefined;
+
+  /**
    * Drafts resolved against the saved rows: what Save would write, and which
    * rows hold an amount that cannot be saved. A draft that lands back on the
    * saved values is not a change.
@@ -132,30 +161,48 @@ export function AdminCodSettingsScreen() {
   const { changes, invalid } = useMemo(() => {
     const byState = new Map((listing?.states ?? []).map((entry) => [entry.state, entry]));
     const pending: PendingChange[] = [];
-    const problems: Record<string, string> = {};
+    const problems: Record<string, RowErrors> = {};
 
     for (const [state, draft] of Object.entries(drafts)) {
       const saved = byState.get(state);
       if (!saved) continue;
 
+      const errors: RowErrors = {};
       const codEnabled = draft.codEnabled ?? saved.codEnabled;
+
       let codCharge = saved.codCharge;
-      // The charge field is hidden while COD is off, so its draft is ignored.
+      // The COD charge field is hidden while COD is off, so its draft is ignored.
       if (codEnabled && draft.charge !== undefined) {
         const parsed = parseCharge(draft.charge);
-        if ('error' in parsed) {
-          problems[state] = parsed.error;
-          continue;
-        }
-        codCharge = parsed.paise;
+        if ('error' in parsed) errors.cod = parsed.error;
+        else codCharge = parsed.paise;
       }
 
-      if (codEnabled !== saved.codEnabled || codCharge !== saved.codCharge) {
-        pending.push({ state, codEnabled, codCharge });
+      /* Prepaid is never hidden: it applies whether or not COD is offered
+         here, so switching COD off must not quietly drop a prepaid edit. */
+      const savedPrepaid = saved.prepaidCharge;
+      let prepaidCharge: number | undefined;
+      if (prepaidSupported && savedPrepaid !== undefined && draft.prepaid !== undefined) {
+        const parsed = parseCharge(draft.prepaid);
+        if ('error' in parsed) errors.prepaid = parsed.error;
+        else if (parsed.paise !== savedPrepaid) prepaidCharge = parsed.paise;
+      }
+
+      if (errors.cod || errors.prepaid) {
+        problems[state] = errors;
+        continue;
+      }
+
+      if (
+        codEnabled !== saved.codEnabled ||
+        codCharge !== saved.codCharge ||
+        prepaidCharge !== undefined
+      ) {
+        pending.push({ state, codEnabled, codCharge, ...(prepaidCharge !== undefined ? { prepaidCharge } : {}) });
       }
     }
     return { changes: pending, invalid: problems };
-  }, [drafts, listing]);
+  }, [drafts, listing, prepaidSupported]);
 
   const invalidCount = Object.keys(invalid).length;
   const hasUnsaved = changes.length > 0 || invalidCount > 0;
@@ -175,6 +222,9 @@ export function AdminCodSettingsScreen() {
         await adminApi.saveCodConfig(change.state, {
           codEnabled: change.codEnabled,
           codCharge: change.codCharge,
+          // Omitted unless it changed: the server then leaves the stored
+          // prepaid amount exactly as it is.
+          ...(change.prepaidCharge !== undefined ? { prepaidCharge: change.prepaidCharge } : {}),
         });
       } catch (caught) {
         nextFailed[change.state] =
@@ -213,7 +263,7 @@ export function AdminCodSettingsScreen() {
   usePreventRemove(hasUnsaved && !saving, ({ data }) => {
     const leave = () => navigation.dispatch(data.action);
     Alert.alert(
-      'Unsaved COD changes',
+      'Unsaved shipping changes',
       invalidCount > 0
         ? 'Some amounts could not be saved as typed. Leave and discard your changes?'
         : 'Save your changes before leaving?',
@@ -239,7 +289,7 @@ export function AdminCodSettingsScreen() {
   const resetToDefault = (entry: CodStateConfig) => {
     Alert.alert(
       `Reset ${entry.state}?`,
-      'This state will follow the store default again until it is set explicitly.',
+      'This state will follow the store defaults again — both cash on delivery and online shipping — until it is set explicitly.',
       [
         { text: 'Keep', style: 'cancel' },
         {
@@ -304,13 +354,17 @@ export function AdminCodSettingsScreen() {
 
       <LargeTitle
         overline="Admin only"
-        title="COD settings"
+        title="Shipping settings"
         caption={
           defaults
             ? `States you haven't set follow the store default: ${
                 defaults.codEnabled
                   ? `cash on delivery on, ${formatPaise(defaults.codCharge)}`
                   : 'cash on delivery off'
+              }${
+                defaults.prepaidCharge !== undefined
+                  ? `; online orders ${formatPaise(defaults.prepaidCharge)}`
+                  : ''
               }.`
             : undefined
         }
@@ -373,7 +427,9 @@ export function AdminCodSettingsScreen() {
             {visible.map((entry) => {
               const draft = drafts[entry.state];
               const codEnabled = draft?.codEnabled ?? entry.codEnabled;
-              const chargeError = invalid[entry.state];
+              const rowErrors = invalid[entry.state];
+              const chargeError = rowErrors?.cod;
+              const prepaidError = rowErrors?.prepaid;
               const saveError = failed[entry.state];
               const pending = pendingStates.has(entry.state);
               const locked = saving || resetting === entry.state;
@@ -386,6 +442,9 @@ export function AdminCodSettingsScreen() {
                       <Text style={styles.meta}>
                         {entry.configured ? 'Set by you' : 'Store default'}
                         {entry.codEnabled ? '' : ' · COD off'}
+                        {prepaidSupported && entry.configured && entry.prepaidUsingDefault
+                          ? ' · prepaid at default'
+                          : ''}
                         {pending || chargeError ? (
                           <Text style={styles.metaUnsaved}> · Unsaved</Text>
                         ) : null}
@@ -419,9 +478,33 @@ export function AdminCodSettingsScreen() {
                       </View>
                     </View>
                   ) : null}
-
                   {chargeError ? <Text style={styles.rowError}>{chargeError}</Text> : null}
-                  {saveError && !chargeError ? (
+
+                  {/* Shown whether or not COD is offered: prepaid orders ship
+                      to this state either way. */}
+                  {prepaidSupported && entry.prepaidCharge !== undefined ? (
+                    <View style={styles.chargeRow}>
+                      <Text style={styles.chargeLabel}>Online shipping</Text>
+                      <View
+                        style={[styles.chargeField, prepaidError ? styles.chargeFieldError : null]}
+                      >
+                        <Text style={styles.rupee}>₹</Text>
+                        <TextInput
+                          value={draft?.prepaid ?? paiseToRupeeInput(entry.prepaidCharge)}
+                          onChangeText={(text) => editDraft(entry.state, { prepaid: text })}
+                          keyboardType="decimal-pad"
+                          returnKeyType="done"
+                          editable={!locked}
+                          selectTextOnFocus
+                          accessibilityLabel={`Online shipping charge for ${entry.state}, in rupees`}
+                          style={styles.chargeInput}
+                        />
+                      </View>
+                    </View>
+                  ) : null}
+                  {prepaidError ? <Text style={styles.rowError}>{prepaidError}</Text> : null}
+
+                  {saveError && !chargeError && !prepaidError ? (
                     <Text style={styles.rowError}>Not saved: {saveError}</Text>
                   ) : null}
 
@@ -445,7 +528,7 @@ export function AdminCodSettingsScreen() {
 
         <Text style={styles.note}>
           Customers pick their state from a list, and older addresses typed by hand are matched by
-          name, including common spellings and state codes. Checkout always prices COD on the
+          name, including common spellings and state codes. Checkout always prices shipping on the
           server — a saved change takes effect on the next order.
         </Text>
       </ScrollView>

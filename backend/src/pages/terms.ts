@@ -3,9 +3,8 @@ import { page } from './layout';
 
 /**
  * Terms of service, drafted from how the store actually works (pricing tiers,
- * payment, cash on delivery, cancellation and refunds). A draft for the client
- * to confirm, not legal advice: the [CONFIRM WITH CLIENT] values come from
- * business.ts.
+ * payment, cash on delivery, cancellation and refunds). Not legal advice; the
+ * business details come from business.ts.
  */
 export function renderTerms(): string {
   return page(
@@ -61,7 +60,7 @@ misleading or unrelated.</p>
 
 <h2>Changes and governing law</h2>
 <p>We may update these terms; the date above shows the latest version. These terms are governed by
-the laws of India. [CONFIRM WITH CLIENT: courts of which city have jurisdiction.]</p>
+the laws of India, and the courts at ${BUSINESS.jurisdictionCity} have jurisdiction.</p>
 
 <h2>Contact</h2>
 <p>${BUSINESS.legalName}<br>${BUSINESS.address}<br>

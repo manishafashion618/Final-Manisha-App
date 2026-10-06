@@ -34,7 +34,13 @@ export function createApp(): Application {
   app.disable('x-powered-by');
 
   // ── Security headers (PRD 8.11) ──
-  app.use(helmet());
+  // Helmet's defaults, except that images may also come from Cloudinary,
+  // where product photos live: the public home page shows them.
+  app.use(
+    helmet({
+      contentSecurityPolicy: { directives: { 'img-src': ["'self'", 'data:', 'https://res.cloudinary.com'] } },
+    }),
+  );
   app.use(
     cors({
       // The mobile app sends no Origin header and is always served. Browser

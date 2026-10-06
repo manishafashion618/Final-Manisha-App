@@ -7,15 +7,19 @@ import {
   type DeletionNotice,
   type DeletionView,
 } from '../pages/accountDeletion';
+import { renderContact } from '../pages/contact';
+import { HOME_PRODUCT_LIMIT, renderHome } from '../pages/home';
+import { REFUND_POLICY_TEXT, SHIPPING_POLICY_TEXT, renderPolicyDocument } from '../pages/policyDocuments';
 import { renderPrivacyPolicy } from '../pages/privacyPolicy';
 import { renderTerms } from '../pages/terms';
+import * as productRepository from '../repositories/product.repository';
 import * as accountService from '../services/account.service';
 import { ApiError } from '../utils/ApiError';
 
 /**
- * Public web pages: no auth, outside the API prefix, linked from the app and
- * from the Play Console listing. Plain HTML with no scripts (helmet's CSP
- * forbids them, and nothing here needs one).
+ * Public web pages: no auth, outside the API prefix, linked from the app, the
+ * Play Console listing and Razorpay's website check. Plain HTML with no
+ * scripts (helmet's CSP forbids them, and nothing here needs one).
  *
  * The static pages are rendered once at startup: their content only changes
  * with a deploy.
@@ -24,6 +28,9 @@ const router = Router();
 
 const PRIVACY = renderPrivacyPolicy();
 const TERMS = renderTerms();
+const CONTACT = renderContact();
+const REFUND_POLICY = renderPolicyDocument(REFUND_POLICY_TEXT);
+const SHIPPING_POLICY = renderPolicyDocument(SHIPPING_POLICY_TEXT);
 const DELETION_START = renderAccountDeletion({ step: 'email' });
 
 function sendPage(res: Response, html: string) {
@@ -32,6 +39,29 @@ function sendPage(res: Response, html: string) {
   res.type('html').send(html);
 }
 
+/*
+ * The home page lists the live catalogue, so it is the one page rendered from
+ * the database. Kept for a minute: a burst of visitors costs one query, and a
+ * product change still shows within minutes.
+ */
+const HOME_TTL_MS = env.NODE_ENV === 'test' ? 0 : 60_000;
+let home: { html: string; renderedAt: number } | null = null;
+
+router.get('/', async (_req, res) => {
+  try {
+    if (!home || Date.now() - home.renderedAt >= HOME_TTL_MS) {
+      const products = await productRepository.listRetailShowcase(HOME_PRODUCT_LIMIT + 1);
+      home = { html: renderHome(products), renderedAt: Date.now() };
+    }
+    sendPage(res, home.html);
+  } catch (error) {
+    logger.error('Home page: could not load products', error);
+    serverError(res);
+  }
+});
+router.get('/contact', (_req, res) => sendPage(res, CONTACT));
+router.get('/refund-policy', (_req, res) => sendPage(res, REFUND_POLICY));
+router.get('/shipping-policy', (_req, res) => sendPage(res, SHIPPING_POLICY));
 router.get('/privacy-policy', (_req, res) => sendPage(res, PRIVACY));
 router.get('/terms', (_req, res) => sendPage(res, TERMS));
 router.get('/account-deletion', (_req, res) => sendPage(res, DELETION_START));

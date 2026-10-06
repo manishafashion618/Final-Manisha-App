@@ -48,4 +48,12 @@ export const upsertCodStateSchema = z.object({
   codEnabled: z.boolean(),
   /** Integer paise, like every price in this API. */
   codCharge: paise,
+  /**
+   * Shipping on a prepaid (online) order, in integer paise. Null follows the
+   * store default.
+   *
+   * Optional, and absence is meaningful: an older admin build omits it, and
+   * the service then leaves the saved value alone rather than clearing it.
+   */
+  prepaidCharge: paise.nullable().optional(),
 });

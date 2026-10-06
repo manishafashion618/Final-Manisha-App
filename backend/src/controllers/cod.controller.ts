@@ -13,6 +13,11 @@ export const upsert = asyncHandler(async (req: Request, res: Response) => {
     await codService.upsertStateConfig(req.params.state, {
       codEnabled: req.body.codEnabled,
       codCharge: req.body.codCharge,
+      // Forwarded only when the request actually carried it. Zod drops absent
+      // optional keys, so this is what tells a deliberate "follow the default"
+      // (null) apart from an older admin build that knows nothing about
+      // prepaid pricing — whose save must not wipe the stored amount.
+      ...('prepaidCharge' in req.body ? { prepaidCharge: req.body.prepaidCharge } : {}),
     }),
   );
 });

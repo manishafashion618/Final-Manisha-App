@@ -37,6 +37,14 @@ services:
       - key: JWT_REFRESH_SECRET
         sync: false
 
+      # ── Shipping fallbacks, in PAISE ──
+      # What a state with no row in `codstateconfigs` charges. Per-state
+      # amounts are set from the admin COD Settings screen and win over these.
+      # PREPAID_SHIPPING_CHARGE is load-bearing: the code default is 0, so
+      # dropping this key ships every unconfigured state free.
+      - key: PREPAID_SHIPPING_CHARGE
+        value: "10000" # ₹100
+
       # ── Cloudinary: all three, or image upload returns 503 ──
       - key: CLOUDINARY_CLOUD_NAME
         sync: false
