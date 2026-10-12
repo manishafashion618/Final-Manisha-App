@@ -34,8 +34,8 @@ export interface ResetOtp {
  * the attempt lockout in auth.service — not on entropy — to stay safe.
  * `randomInt` is used over `Math.random` because this is a credential.
  */
-export async function createResetOtp(): Promise<ResetOtp> {
-  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+export async function createResetOtp(overrideCode?: string): Promise<ResetOtp> {
+  const code = overrideCode ?? String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
   return {
     code,
     codeHash: await bcrypt.hash(code, 10),

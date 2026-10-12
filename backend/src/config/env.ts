@@ -98,6 +98,9 @@ const envSchema = z.object({
   /** No default: the seed script refuses to run without one (scripts/seed.ts). */
   SEED_ADMIN_PASSWORD: blankable(z.string().min(8, 'SEED_ADMIN_PASSWORD must be at least 8 characters').optional()),
 
+  // ── Test accounts (development/testing only) ──
+  TEST_ACCOUNTS: blankable(z.string().optional()),
+
   // ── Google Sign-In ──
   /**
    * The WEB OAuth client id (…apps.googleusercontent.com), used as the only
@@ -255,3 +258,25 @@ export const razorpayConfigured = Boolean(env.RAZORPAY_KEY_ID && env.RAZORPAY_KE
 export const cloudinaryConfigured = Boolean(
   env.CLOUDINARY_CLOUD_NAME && env.CLOUDINARY_API_KEY && env.CLOUDINARY_API_SECRET,
 );
+
+/**
+ * Parsed test accounts from TEST_ACCOUNTS env var.
+ * Format: "email:password:otp,email2:password2:otp2"
+ * Only active in non-production environments.
+ */
+export const testAccounts: Array<{ email: string; password: string; otp: string }> = (() => {
+  if (isProduction || !env.TEST_ACCOUNTS) return [];
+  return env.TEST_ACCOUNTS.split(',')
+    .map(entry => entry.trim())
+    .filter(Boolean)
+    .map(entry => {
+      const [email, password, otp] = entry.split(':');
+      return { email: email?.toLowerCase(), password, otp };
+    })
+    .filter(a => a.email && a.password && a.otp);
+})();
+
+export function getTestOtp(email: string): string | null {
+  const account = testAccounts.find(a => a.email === email.toLowerCase());
+  return account?.otp ?? null;
+}

@@ -1,7 +1,7 @@
 import { User, type IUser } from '../models/user.model';
 import { ApiError } from '../utils/ApiError';
 import { serializeUser, type SerializedUser } from '../serializers/user.serializer';
-import { env } from '../config/env';
+import { env, getTestOtp } from '../config/env';
 import { getStore } from '../config/store';
 import * as emailService from './email.service';
 import * as googleService from './google.service';
@@ -226,7 +226,8 @@ export async function requestEmailCode(
     );
   }
 
-  const otp = await passwordService.createResetOtp();
+  const testOtp = getTestOtp(target);
+  const otp = await passwordService.createResetOtp(testOtp ?? undefined);
   await User.updateOne(
     { _id: user._id },
     { $set: { pendingEmail: target, emailCodeHash: otp.codeHash, emailCodeExpiresAt: otp.expiresAt } },
@@ -585,7 +586,8 @@ export async function requestPasswordReset(input: {
   // The same bcrypt work happens for every address, so response time does not
   // reveal which ones are registered (an unknown address used to answer ~50 ms
   // sooner). Mail is sent without awaiting SMTP, for the same reason.
-  const otp = await passwordService.createResetOtp();
+  const testOtp = getTestOtp(email);
+  const otp = await passwordService.createResetOtp(testOtp ?? undefined);
 
   // Silent no-op for unknown addresses: the controller still returns success.
   if (!user || !user.isActive) return;
